@@ -30,7 +30,7 @@ const (
 // optional.
 func Dialer(acct config.Account) ConnectFunc {
 	return func() (*imapclient.Client, error) {
-		tlsConf, err := tlsConfig(acct)
+		tlsConf, err := tlsConfig(acct, acct.Host)
 		if err != nil {
 			return nil, err
 		}
@@ -55,8 +55,10 @@ func Dialer(acct config.Account) ConnectFunc {
 	}
 }
 
-func tlsConfig(acct config.Account) (*tls.Config, error) {
-	conf := &tls.Config{ServerName: acct.Host, MinVersion: tls.VersionTLS12}
+// tlsConfig verifies the server named host against the system roots, or
+// against tls_ca_file alone when the account sets one. IMAP and SMTP share it.
+func tlsConfig(acct config.Account, host string) (*tls.Config, error) {
+	conf := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
 	if acct.TLSCAFile == "" {
 		return conf, nil
 	}

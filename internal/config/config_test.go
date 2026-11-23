@@ -346,3 +346,10 @@ func TestMaxRecipientsFromConfig(t *testing.T) {
 		t.Errorf("two recipients under max_recipients=1: %+v", d)
 	}
 }
+
+func TestSendNeedsEmailUsername(t *testing.T) {
+	body := strings.Replace(withPolicy(sendPolicyBody), `me@example.com`, "me", 1)
+	if _, err := Load(writeConfig(t, body, 0o600)); err == nil || !strings.Contains(err.Error(), "From") {
+		t.Errorf("err = %v, want a From-address requirement", err)
+	}
+}

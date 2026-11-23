@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"sort"
@@ -272,6 +273,11 @@ func buildAccount(name string, ra rawAccount, dir string) (Account, error) {
 		return a, fmt.Errorf("policy: %w", err)
 	}
 	a.Policy = pol
+	if pol.ActionEnabled(policy.Send) {
+		if addr, err := mail.ParseAddress(a.Username); err != nil || addr.Address != a.Username {
+			return a, errors.New("username must be a plain email address when send is enabled, because it is the From address")
+		}
+	}
 	if a.SMTP, err = buildSMTP(a.Host, ra.SMTP, pol.ActionEnabled(policy.Send)); err != nil {
 		return a, fmt.Errorf("smtp: %w", err)
 	}

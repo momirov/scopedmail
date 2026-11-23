@@ -50,7 +50,7 @@ func setup(t *testing.T, spec policy.Spec, opts testserver.Options) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess := gate.New("test", pol, log, gate.Dialer(acct))
+	sess := gate.New("test", pol, log, gate.Dialer(acct), gate.Outbound{})
 	t.Cleanup(func() { sess.Close(); log.Close() })
 	return &env{srv: srv, sess: sess, log: logPath}
 }
@@ -405,7 +405,7 @@ func TestFailedAuditAppendWithholdsResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	log.Close() // appends to a closed log fail
-	sess := gate.New("test", mustPolicy(t, policy.Spec{Allow: []string{"Agent"}}), log, func() (*imapclient.Client, error) { return nil, errors.New("must not connect") })
+	sess := gate.New("test", mustPolicy(t, policy.Spec{Allow: []string{"Agent"}}), log, func() (*imapclient.Client, error) { return nil, errors.New("must not connect") }, gate.Outbound{})
 	_, err = sess.Search("Agent", gate.SearchQuery{Limit: 1})
 	var ae *gate.AuditError
 	if !errors.As(err, &ae) {
@@ -438,7 +438,7 @@ func TestUntrustedServerCertificateFailsClosed(t *testing.T) {
 	log, _ := audit.Open(filepath.Join(t.TempDir(), "a.jsonl"))
 	defer log.Close()
 	acct := config.Account{Host: e.srv.Host, Port: e.srv.Port, Username: testserver.Username, Auth: config.AuthPassword, PasswordEnv: "GATE_TEST_PW", Policy: pol}
-	sess := gate.New("x", pol, log, gate.Dialer(acct))
+	sess := gate.New("x", pol, log, gate.Dialer(acct), gate.Outbound{})
 	if _, err := sess.Mailboxes(); err == nil {
 		t.Fatal("connected to a server whose certificate is not trusted")
 	}

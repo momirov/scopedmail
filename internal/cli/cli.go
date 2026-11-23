@@ -223,7 +223,7 @@ func (inv *invocation) withSession(f func(*gate.Session) error) error {
 		return &codedError{"audit", err}
 	}
 	defer log.Close()
-	sess := gate.New(acct.Name, acct.Policy, log, gate.Dialer(acct))
+	sess := gate.New(acct.Name, acct.Policy, log, gate.Dialer(acct), gate.SMTPOutbound(acct))
 	defer sess.Close()
 	return f(sess)
 }
