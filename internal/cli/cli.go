@@ -24,6 +24,9 @@ const (
 )
 
 type Env struct {
+	// Stdin is the message body for send when no --body or --body-file is
+	// given. It may be nil.
+	Stdin          io.Reader
 	Stdout, Stderr io.Writer
 	Getenv         func(string) string
 }
@@ -69,6 +72,7 @@ func init() {
 		{"delete", "delete -m MBOX UID...", runDelete},
 		{"append", "append -m MBOX --file MSG.eml [--flags draft,seen]", runAppend},
 		{"create-mailbox", "create-mailbox NAME", runCreateMailbox},
+		{"send", "send --to A[,B] [--cc ..] [--bcc ..] [--subject S] (--body S | --body-file F | stdin) [--html-file F] [--attach FILE]... [--reply-to -m MBOX UID]", runSend},
 		{"policy", "policy", runPolicy},
 		{"audit", "audit verify | audit tail [-n N]", runAudit},
 	}

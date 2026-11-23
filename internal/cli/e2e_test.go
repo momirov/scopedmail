@@ -46,6 +46,7 @@ type fixture struct {
 	dir    string
 	config string
 	audit  string
+	smtp   *testserver.SMTPServer
 }
 
 const readOnlyPolicy = `allow = ["Agent", "Agent/*", "INBOX"]`
@@ -102,10 +103,13 @@ type result struct {
 	exit           int
 }
 
-func (f *fixture) run(args ...string) result {
+func (f *fixture) run(args ...string) result { return f.runIn("", args...) }
+
+func (f *fixture) runIn(stdin string, args ...string) result {
 	f.t.Helper()
 	f.srv.ResetCommands()
 	cmd := exec.Command(binary, append([]string{"--config", f.config}, args...)...)
+	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = append(os.Environ(), "SCOPEDMAIL_PASSWORD="+testserver.Password)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
