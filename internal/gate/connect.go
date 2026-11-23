@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"strconv"
 	"time"
 
@@ -122,7 +123,12 @@ func secret(envName string, argv []string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), secretTimeout)
 	defer cancel()
+	env, err := commandEnv()
+	if err != nil {
+		return "", err
+	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Env = env
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -137,6 +143,28 @@ func secret(envName string, argv []string) (string, error) {
 		return "", fmt.Errorf("%s printed nothing", argv[0])
 	}
 	return out, nil
+}
+
+// commandPath is the whole $PATH a credential command sees.
+const commandPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+// commandEnv is the fixed environment for credential commands. Under sudo,
+// the caller's variables can survive into scopedmail, so none of them pass
+// on. HOME comes from the user database for the effective user, because
+// $HOME may still name the caller's home.
+func commandEnv() ([]string, error) {
+	u, err := effectiveUser()
+	if err != nil {
+		return nil, fmt.Errorf("look up the current user for a credential command: %w", err)
+	}
+	return []string{"PATH=" + commandPath, "HOME=" + u.HomeDir}, nil
+}
+
+func effectiveUser() (*user.User, error) {
+	if uid := os.Geteuid(); uid >= 0 {
+		return user.LookupId(strconv.Itoa(uid))
+	}
+	return user.Current()
 }
 
 const xoauth2Mech = "XOAUTH2"

@@ -153,8 +153,8 @@ host = "imap.gmail.com"
 port = 993
 username = "me@example.com"
 auth = "password"              # "password" | "oauth2"
-password_cmd = ["security", "find-generic-password", "-s", "scopedmail", "-w"]  # or password_env = "SCOPEDMAIL_PASSWORD"
-# oauth2_token_cmd = ["oama", "access", "me@example.com"]   # prints an access token; used with SASL OAUTHBEARER, else XOAUTH2
+password_cmd = ["/usr/bin/security", "find-generic-password", "-s", "scopedmail", "-w"]  # or password_env = "SCOPEDMAIL_PASSWORD"
+# oauth2_token_cmd = ["/usr/local/bin/oama", "access", "me@example.com"]   # prints an access token; used with SASL OAUTHBEARER, else XOAUTH2
 # tls_ca_file = "ca.pem"       # replaces the system roots, for a private CA; relative to the config file
 files_dir = "~/scopedmail-files"  # the only directory agent file paths may use; unset means file flags are refused
 
@@ -172,7 +172,7 @@ port = 587                     # 465 implicit TLS by default, 587 with starttls
 starttls = true
 ```
 
-There are no inline passwords, so a plaintext `password` key is a parse error. Any other unknown key is also a parse error. TLS is always on (port 993 implicit TLS, or STARTTLS on port 143 when `starttls = true`), certificate verification cannot be disabled, and there is no plaintext option. `audit_log` is required and must be absolute or start with `~/`. `files_dir` must be absolute or start with `~/`. With `send` enabled, `username` must be a plain email address because it is the From address, and the SMTP server shares the account's credentials and `tls_ca_file`, with TLS always on. `auth = "password"` needs exactly one of `password_cmd` and `password_env`; `auth = "oauth2"` needs `oauth2_token_cmd`. Credential commands run without a shell, with a 30-second timeout, and their output never appears in error messages.
+There are no inline passwords, so a plaintext `password` key is a parse error. Any other unknown key is also a parse error. TLS is always on (port 993 implicit TLS, or STARTTLS on port 143 when `starttls = true`), certificate verification cannot be disabled, and there is no plaintext option. `audit_log` is required and must be absolute or start with `~/`. `files_dir` must be absolute or start with `~/`. With `send` enabled, `username` must be a plain email address because it is the From address, and the SMTP server shares the account's credentials and `tls_ca_file`, with TLS always on. `auth = "password"` needs exactly one of `password_cmd` and `password_env`; `auth = "oauth2"` needs `oauth2_token_cmd`. Credential commands run without a shell, with a 30-second timeout, and their output never appears in error messages. The program must be an absolute path, because a bare name would be looked up in a `$PATH` that `sudo` may keep from the agent. The command gets a fixed environment, `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and `HOME` from the user database for the effective user, so no variable the caller set reaches it.
 
 ## CLI surface
 

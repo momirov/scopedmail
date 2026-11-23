@@ -150,10 +150,30 @@ func TestCredentialRules(t *testing.T) {
 	}
 }
 
+func TestCredentialCommandsNeedAnAbsoluteProgram(t *testing.T) {
+	password := `auth = "password"
+password_env = "SCOPEDMAIL_PASSWORD"`
+	for name, repl := range map[string]string{
+		"password_cmd bare name":     "auth = \"password\"\npassword_cmd = [\"cat\", \"/run/secret\"]",
+		"password_cmd relative path": "auth = \"password\"\npassword_cmd = [\"bin/cat\", \"/run/secret\"]",
+		"password_cmd empty":         "auth = \"password\"\npassword_cmd = [\"\"]",
+		"oauth2_token_cmd bare name": "auth = \"oauth2\"\noauth2_token_cmd = [\"oama\", \"access\", \"me@example.com\"]",
+	} {
+		_, err := Load(writeConfig(t, strings.Replace(goodConfig, password, repl, 1), 0o600))
+		if err == nil || !strings.Contains(err.Error(), "_cmd") {
+			t.Errorf("%s: Load = %v, want an error naming the key", name, err)
+		}
+	}
+	ok := strings.Replace(goodConfig, password, "auth = \"password\"\npassword_cmd = [\"/bin/cat\", \"/run/secret\"]", 1)
+	if _, err := Load(writeConfig(t, ok, 0o600)); err != nil {
+		t.Errorf("absolute password_cmd: %v", err)
+	}
+}
+
 func TestOAuth2Account(t *testing.T) {
 	body := strings.Replace(goodConfig, `auth = "password"
 password_env = "SCOPEDMAIL_PASSWORD"`, `auth = "oauth2"
-oauth2_token_cmd = ["gcloud", "auth", "print-access-token"]`, 1)
+oauth2_token_cmd = ["/usr/bin/gcloud", "auth", "print-access-token"]`, 1)
 	cfg, err := Load(writeConfig(t, body, 0o600))
 	if err != nil {
 		t.Fatal(err)

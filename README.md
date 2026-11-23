@@ -60,7 +60,7 @@ In this setup, the agent can run scopedmail but cannot read its config, its cred
    host = "imap.gmail.com"
    username = "you@gmail.com"
    auth = "password"
-   password_cmd = ["cat", "/home/scopedmail/.secrets/gmail"]
+   password_cmd = ["/bin/cat", "/home/scopedmail/.secrets/gmail"]
    files_dir = "/srv/scopedmail-files"
 
    [accounts.gmail.policy]
@@ -84,8 +84,10 @@ In this setup, the agent can run scopedmail but cannot read its config, its cred
 
    ```sh
    #!/bin/sh
-   exec /usr/local/bin/scopedmail --config /home/scopedmail/.config/scopedmail/config.toml -- "$@"
+   exec /usr/bin/env -i /usr/local/bin/scopedmail --config /home/scopedmail/.config/scopedmail/config.toml -- "$@"
    ```
+
+   `env -i` starts scopedmail with an empty environment, so no variable the agent set, such as `PATH`, `HOME`, or `LD_PRELOAD`, reaches it through `sudo`. scopedmail also runs `password_cmd` and `oauth2_token_cmd` with a fixed environment, whatever its own holds. Because of `env -i`, use `password_cmd` and not `password_env` in this setup.
 
    The wrapper pins the config. scopedmail refuses a global flag that appears twice, so even without the `--`, an agent that adds its own `--config` gets a usage error (exit code 2) and no command runs. The `--` goes further. scopedmail reads global flags only before it, so the agent cannot pass any of them, and `--account` too is left to `default_account`. Because `--config` is given, scopedmail ignores the `SCOPEDMAIL_CONFIG` environment variable. A `sudoers` rule that pins `scopedmail --config PATH *` has the same protection against a second `--config`, but the wrapper does not depend on how `sudo` matches the wildcard.
 
@@ -144,7 +146,7 @@ This setup gives an agent one Gmail label called `Agent`, read-only.
    ```
 
 4. In Gmail, create a label named `Agent` (**Settings** > **Labels** > **Create new label**). Check that **Show in IMAP** is on for it. Apply the label by hand, or create a Gmail filter that applies it to the mail you want the agent to see.
-5. Write `~/.config/scopedmail/config.toml` with mode 0600. Pick the `password_cmd` line that matches step 3:
+5. Write `~/.config/scopedmail/config.toml` with mode 0600. Pick the `password_cmd` line that matches step 3. The program must be an absolute path. If yours is somewhere else, `command -v secret-tool` prints where. The command runs with only `PATH` and `HOME` set. `secret-tool` also needs the session bus, so on Linux put `"/usr/bin/env", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",` in front of it, with your user ID in place of `1000`:
 
    ```toml
    audit_log = "~/.local/state/scopedmail/audit.jsonl"
@@ -153,9 +155,9 @@ This setup gives an agent one Gmail label called `Agent`, read-only.
    host = "imap.gmail.com"
    username = "you@gmail.com"
    auth = "password"
-   password_cmd = ["security", "find-generic-password", "-s", "scopedmail", "-a", "you@gmail.com", "-w"]
-   # password_cmd = ["secret-tool", "lookup", "service", "scopedmail", "account", "you@gmail.com"]
-   # password_cmd = ["pass", "show", "scopedmail/gmail"]
+   password_cmd = ["/usr/bin/security", "find-generic-password", "-s", "scopedmail", "-a", "you@gmail.com", "-w"]
+   # password_cmd = ["/usr/bin/secret-tool", "lookup", "service", "scopedmail", "account", "you@gmail.com"]
+   # password_cmd = ["/usr/bin/pass", "show", "scopedmail/gmail"]
 
    [accounts.gmail.policy]
    allow = ["Agent"]
@@ -176,14 +178,14 @@ This setup gives an agent one Gmail label called `Agent`, read-only.
 
 ## Use OAuth instead of an app password
 
-Set `auth = "oauth2"` and give `oauth2_token_cmd`, a command that prints a current access token to stdout. For Gmail, the token needs the `https://mail.google.com/` scope. scopedmail runs the command on every connection and does not cache or refresh tokens. Use a tool that refreshes them, such as [oama](https://github.com/pdobsan/oama):
+Set `auth = "oauth2"` and give `oauth2_token_cmd`, a command that prints a current access token to stdout. For Gmail, the token needs the `https://mail.google.com/` scope. scopedmail runs the command on every connection and does not cache or refresh tokens. Use a tool that refreshes them, such as [oama](https://github.com/pdobsan/oama). Give its absolute path, which `command -v oama` prints:
 
 ```toml
 [accounts.gmail]
 host = "imap.gmail.com"
 username = "you@gmail.com"
 auth = "oauth2"
-oauth2_token_cmd = ["oama", "access", "you@gmail.com"]
+oauth2_token_cmd = ["/usr/local/bin/oama", "access", "you@gmail.com"]
 
 [accounts.gmail.policy]
 allow = ["Agent"]
@@ -213,7 +215,7 @@ host = "imap.gmail.com"
 port = 993
 username = "me@example.com"
 auth = "password"
-password_cmd = ["security", "find-generic-password", "-s", "scopedmail", "-w"]
+password_cmd = ["/usr/bin/security", "find-generic-password", "-s", "scopedmail", "-w"]
 files_dir = "~/scopedmail-files"
 
 [accounts.work.policy]
@@ -245,9 +247,9 @@ starttls = true
 | `port` | no | Defaults to 993, or to 143 when `starttls = true`. |
 | `starttls` | no | `true` connects in plain text and upgrades with `STARTTLS`. The default is implicit TLS. There is no unencrypted mode. |
 | `tls_ca_file` | no | PEM file that replaces the system roots, for a server with a private CA. A relative path is relative to the config file. |
-| `password_cmd` | with `auth = "password"` | Command, as an argument list, that prints the password. scopedmail runs it without a shell, trims the trailing newline, and gives it 30 seconds. |
+| `password_cmd` | with `auth = "password"` | Command, as an argument list, that prints the password. The first element must be an absolute path. scopedmail runs it without a shell, trims the trailing newline, and gives it 30 seconds. The command gets only `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and `HOME`, set to the home directory of the user scopedmail runs as. |
 | `password_env` | with `auth = "password"` | Environment variable that holds the password. Use exactly one of `password_cmd` and `password_env`. |
-| `oauth2_token_cmd` | with `auth = "oauth2"` | Command that prints an access token. |
+| `oauth2_token_cmd` | with `auth = "oauth2"` | Command that prints an access token. It follows the same rules as `password_cmd`. |
 | `files_dir` | no | The one directory that agent-supplied file paths may name. Absolute, or starting with `~/`. Without it, every file flag is refused. See [File paths](#file-paths). |
 
 A `password` key is an error. scopedmail does not store passwords in the config. TLS certificate checks cannot be turned off.
@@ -295,7 +297,7 @@ With `send` enabled, `username` must be a plain email address, because it is the
 host = "imap.gmail.com"
 username = "you@gmail.com"
 auth = "password"
-password_cmd = ["cat", "/home/scopedmail/.secrets/gmail"]
+password_cmd = ["/bin/cat", "/home/scopedmail/.secrets/gmail"]
 
 [accounts.gmail.policy]
 allow = ["Agent"]

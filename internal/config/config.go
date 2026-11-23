@@ -270,12 +270,17 @@ func buildAccount(name string, ra rawAccount, dir string) (Account, error) {
 		if len(a.OAuth2TokenCmd) > 0 {
 			return a, errors.New(`oauth2_token_cmd only applies to auth "oauth2"`)
 		}
-		if len(a.PasswordCmd) > 0 && a.PasswordCmd[0] == "" {
-			return a, errors.New("password_cmd has an empty program name")
+		if len(a.PasswordCmd) > 0 {
+			if err := checkCommand("password_cmd", a.PasswordCmd); err != nil {
+				return a, err
+			}
 		}
 	case AuthOAuth2:
-		if len(a.OAuth2TokenCmd) == 0 || a.OAuth2TokenCmd[0] == "" {
+		if len(a.OAuth2TokenCmd) == 0 {
 			return a, errors.New(`auth "oauth2" needs oauth2_token_cmd`)
+		}
+		if err := checkCommand("oauth2_token_cmd", a.OAuth2TokenCmd); err != nil {
+			return a, err
 		}
 		if len(a.PasswordCmd) > 0 || a.PasswordEnv != "" {
 			return a, errors.New(`password_cmd and password_env only apply to auth "password"`)
@@ -307,6 +312,19 @@ func buildAccount(name string, ra rawAccount, dir string) (Account, error) {
 		return a, fmt.Errorf("smtp: %w", err)
 	}
 	return a, nil
+}
+
+// checkCommand requires an absolute program path. A bare name would be looked
+// up in $PATH, which sudo may keep from the agent, so the agent could put its
+// own program in front and receive the credential command's place.
+func checkCommand(key string, argv []string) error {
+	if argv[0] == "" {
+		return fmt.Errorf("%s has an empty program name", key)
+	}
+	if !filepath.IsAbs(argv[0]) {
+		return fmt.Errorf("%s program %q must be an absolute path; \"command -v %s\" prints it", key, argv[0], filepath.Base(argv[0]))
+	}
+	return nil
 }
 
 // checkFilesDir refuses a files_dir that holds the config or the audit log,

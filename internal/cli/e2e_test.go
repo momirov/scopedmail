@@ -597,7 +597,7 @@ func TestPasswordCmd(t *testing.T) {
 	if r := f.run("mailboxes"); r.exit != 0 {
 		t.Fatalf("exit %d: %s", r.exit, r.stderr)
 	}
-	f.writeConfig(f.accountBlock("tls_ca_file = \"ca.pem\"\npassword_cmd = [\"false\"]", readOnlyPolicy))
+	f.writeConfig(f.accountBlock("tls_ca_file = \"ca.pem\"\npassword_cmd = [\"/usr/bin/false\"]", readOnlyPolicy))
 	r := f.run("mailboxes")
 	if r.exit != 1 || strings.Contains(r.stderr, testserver.Password) {
 		t.Errorf("failing password_cmd: exit %d stderr %s", r.exit, r.stderr)
