@@ -55,7 +55,7 @@ func setupSend(t *testing.T, smtpOpts testserver.SMTPOptions, spec policy.Spec) 
 	}
 	sess := gate.New("test", pol, log, gate.Dialer(acct), gate.SMTPOutbound(acct), nil)
 	t.Cleanup(func() { sess.Close(); log.Close() })
-	return &sendEnv{env: &env{srv: imapSrv, sess: sess, log: logPath}, smtp: smtpSrv}
+	return &sendEnv{env: &env{srv: imapSrv, sess: sess, log: logPath, acct: acct}, smtp: smtpSrv}
 }
 
 var sendSpec = policy.Spec{
@@ -148,10 +148,10 @@ func TestSendDeliversWithFixedFromAndBccOnlyInEnvelope(t *testing.T) {
 	}
 
 	recs := e.records(t)
-	if len(recs) != 1 || recs[0].Action != "send" || recs[0].Outcome != audit.OutcomeOK {
+	if len(recs) != 2 || recs[1].Action != "send" || recs[1].Outcome != audit.OutcomeOK {
 		t.Fatalf("records = %+v", recs)
 	}
-	a := recs[0].Args
+	a := recs[1].Args
 	if a["to"] != "Alice@Example.com" || a["cc"] != "carol@other.org" || a["bcc"] != "bob@example.com,alice@example.com" {
 		t.Errorf("args = %v", a)
 	}
@@ -270,13 +270,13 @@ func TestReplySetsThreadingHeadersAndDefaultSubject(t *testing.T) {
 		t.Errorf("a reply must not add recipients: %v", d.To)
 	}
 	recs := e.records(t)
-	if len(recs) != 1 || recs[0].Mailbox != "Agent" || len(recs[0].UIDs) != 1 || recs[0].UIDs[0] != 1 || recs[0].Args["message_id"] != res.MessageID {
-		t.Errorf("records = %+v", recs)
+	if len(recs) != 2 || recs[1].Mailbox != "Agent" || len(recs[1].UIDs) != 1 || recs[1].UIDs[0] != 1 || recs[1].Args["message_id"] != res.MessageID {
+		t.Fatalf("records = %+v", recs)
 	}
 	if !strings.Contains(e.commands(), "EXAMINE") || strings.Contains(e.commands(), "SELECT") {
 		t.Errorf("reply must open the mailbox read-only:\n%s", e.commands())
 	}
-	if recs[0].Args["subject_sha256"] == "" {
+	if recs[1].Args["subject_sha256"] == "" {
 		t.Error("defaulted subject must still be recorded as a hash")
 	}
 }
@@ -355,7 +355,7 @@ func TestSendErrorsAreAuditedAndMissingReplyTargetSendsNothing(t *testing.T) {
 	}
 	for _, env := range []*sendEnv{e, rejecting} {
 		recs := env.records(t)
-		if len(recs) != 1 || recs[0].Outcome != audit.OutcomeError {
+		if len(recs) != 2 || recs[1].Outcome != audit.OutcomeError {
 			t.Errorf("records = %+v", recs)
 		}
 	}

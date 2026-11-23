@@ -13,6 +13,9 @@ const (
 	OutcomeOK     = "ok"
 	OutcomeDenied = "denied"
 	OutcomeError  = "error"
+	// OutcomeStarted marks an intent: a write action recorded before it runs.
+	// The record that reports how it ended names the intent in IntentSeq.
+	OutcomeStarted = "started"
 )
 
 type Record struct {
@@ -27,8 +30,11 @@ type Record struct {
 	Outcome string            `json:"outcome"`
 	Reason  string            `json:"reason,omitempty"`
 	Count   int               `json:"count,omitempty"`
-	Prev    string            `json:"prev"`
-	Hash    string            `json:"hash"`
+	// IntentSeq links an outcome to its started record. Records written before
+	// intents existed leave it out, so their bytes and hashes are unchanged.
+	IntentSeq uint64 `json:"intent_seq,omitempty"`
+	Prev      string `json:"prev"`
+	Hash      string `json:"hash"`
 }
 
 // encode is the one canonical byte form of a record. The log stores exactly

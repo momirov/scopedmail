@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
 )
 
 func decode(line []byte) (Record, error) {
@@ -36,6 +38,10 @@ type VerifyResult struct {
 	// write: deleting records from the end of the log leaves a valid chain, and
 	// only a remembered head can reveal it.
 	Head string `json:"head,omitempty"`
+	// Unfinished lists intents with no outcome record, oldest first. A crash
+	// or a kill leaves one, so the chain is still valid, but the action may or
+	// may not have reached the server.
+	Unfinished []uint64 `json:"unfinished"`
 }
 
 // Verify recomputes the chain. A BrokenError names the first bad position, so
@@ -43,7 +49,8 @@ type VerifyResult struct {
 // the position where the numbering or linkage stops matching.
 func Verify(path string) (VerifyResult, error) {
 	var res VerifyResult
-	err := scan(path, func(rec Record) error { res.Records, res.Head = rec.Seq, rec.Hash; return nil })
+	unfinished, err := scan(path, func(rec Record) error { res.Records, res.Head = rec.Seq, rec.Hash; return nil })
+	res.Unfinished = unfinished
 	return res, err
 }
 
@@ -51,7 +58,7 @@ func Verify(path string) (VerifyResult, error) {
 // chain so a tampered log is never presented as trustworthy.
 func Tail(path string, n int) ([]Record, error) {
 	var recs []Record
-	err := scan(path, func(rec Record) error {
+	_, err := scan(path, func(rec Record) error {
 		recs = append(recs, rec)
 		if n > 0 && len(recs) > n {
 			recs = recs[1:]
@@ -61,54 +68,84 @@ func Tail(path string, n int) ([]Record, error) {
 	return recs, err
 }
 
-func scan(path string, visit func(Record) error) error {
+// scan checks every record and its link to the one before, and returns the
+// seqs of intents that no outcome closed, oldest first.
+func scan(path string, visit func(Record) error) ([]uint64, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer f.Close()
 	if err := lock(f); err != nil {
-		return fmt.Errorf("audit log: lock: %w", err)
+		return nil, fmt.Errorf("audit log: lock: %w", err)
 	}
 	defer unlock(f)
 
 	br := bufio.NewReader(f)
 	var prevLine []byte
+	open := map[uint64]Record{}
 	for seq := uint64(1); ; seq++ {
 		line, err := br.ReadBytes('\n')
 		if errors.Is(err, io.EOF) {
 			if len(line) > 0 {
-				return &BrokenError{seq, "partial record at end of file"}
+				return nil, &BrokenError{seq, "partial record at end of file"}
 			}
-			return nil
+			return slices.Sorted(maps.Keys(open)), nil
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		line = line[:len(line)-1]
 		rec, err := decode(line)
 		if err != nil {
-			return &BrokenError{seq, "unreadable record: " + err.Error()}
+			return nil, &BrokenError{seq, "unreadable record: " + err.Error()}
 		}
 		if canon, err := rec.encode(); err != nil || !bytes.Equal(canon, line) {
-			return &BrokenError{seq, "record bytes differ from their canonical form"}
+			return nil, &BrokenError{seq, "record bytes differ from their canonical form"}
 		}
 		if rec.Seq != seq {
-			return &BrokenError{seq, fmt.Sprintf("found seq %d where %d belongs", rec.Seq, seq)}
+			return nil, &BrokenError{seq, fmt.Sprintf("found seq %d where %d belongs", rec.Seq, seq)}
 		}
 		wantPrev := ""
 		if prevLine != nil {
 			wantPrev = lineHash(prevLine)
 		}
 		if rec.Prev != wantPrev {
-			return &BrokenError{seq, "prev does not match the previous record"}
+			return nil, &BrokenError{seq, "prev does not match the previous record"}
 		}
 		if want, err := rec.computeHash(); err != nil || rec.Hash != want {
-			return &BrokenError{seq, "hash does not match record contents"}
+			return nil, &BrokenError{seq, "hash does not match record contents"}
+		}
+		if err := link(open, rec); err != nil {
+			return nil, err
 		}
 		if err := visit(rec); err != nil {
-			return err
+			return nil, err
 		}
 		prevLine = line
 	}
+}
+
+// link pairs an outcome with the intent it names. An outcome may close only an
+// earlier intent of the same account and action, and only once.
+func link(open map[uint64]Record, rec Record) error {
+	if rec.Outcome == OutcomeStarted {
+		if rec.IntentSeq != 0 {
+			return &BrokenError{rec.Seq, "an intent names another intent"}
+		}
+		open[rec.Seq] = rec
+		return nil
+	}
+	if rec.IntentSeq == 0 {
+		return nil
+	}
+	intent, ok := open[rec.IntentSeq]
+	if !ok {
+		return &BrokenError{rec.Seq, fmt.Sprintf("intent_seq %d names no unfinished intent", rec.IntentSeq)}
+	}
+	if intent.Account != rec.Account || intent.Action != rec.Action {
+		return &BrokenError{rec.Seq, fmt.Sprintf("intent_seq %d is for a different account or action", rec.IntentSeq)}
+	}
+	delete(open, rec.IntentSeq)
+	return nil
 }

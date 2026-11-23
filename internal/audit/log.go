@@ -53,6 +53,9 @@ func (l *Log) probe() error {
 	if err := fsperm.RejectWritableByOthers(l.path, info); err != nil {
 		return err
 	}
+	if err := raiseFileSizeLimit(info.Size()); err != nil {
+		return err
+	}
 	if err := lock(l.f); err != nil {
 		return fmt.Errorf("lock: %w", err)
 	}

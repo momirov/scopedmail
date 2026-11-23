@@ -1,12 +1,13 @@
 // Package gate is the single choke point between the CLI and the mail server.
-// Every exported Session method checks policy, performs the action, and writes
-// one audit record, in that order. Nothing else holds an IMAP or SMTP
-// connection.
+// Every exported Session method checks policy, records a write before it
+// starts, performs the action, and records the outcome, in that order.
+// Nothing else holds an IMAP or SMTP connection.
 package gate
 
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 
@@ -70,9 +71,9 @@ type UsageError struct{ Msg string }
 
 func (e *UsageError) Error() string { return e.Msg }
 
-// AuditError reports that the audit record could not be written. Results of
+// AuditError reports that an audit record could not be written. Results of
 // the action are withheld. Performed is true when a server-side change had
-// already happened.
+// already happened: its intent is in the log, and its outcome is not.
 type AuditError struct {
 	Err       error
 	Performed bool
@@ -80,7 +81,7 @@ type AuditError struct {
 
 func (e *AuditError) Error() string {
 	if e.Performed {
-		return fmt.Sprintf("action completed but could not be recorded: %v", e.Err)
+		return fmt.Sprintf("action completed but its outcome could not be recorded, so the log shows it unfinished: %v", e.Err)
 	}
 	return e.Err.Error()
 }
@@ -164,9 +165,12 @@ func (s *Session) run(at attempt, exec func(c *imapclient.Client) (int, error)) 
 	})
 }
 
-// audited checks policy, then runs exec, then appends one record. It opens no
+// audited checks policy, runs exec, and records the outcome. It opens no
 // connection itself: exec decides which servers it needs, so a denied attempt
-// touches none of them.
+// touches none of them. A write first appends a durable intent, so a failed
+// append, a kill or a crash can never leave a change on the server with
+// nothing in the log. A read appends only its outcome; its results stay
+// withheld unless that append succeeds.
 func (s *Session) audited(at attempt, exec func() (int, error)) error {
 	rec := audit.Record{
 		Account: s.account,
@@ -182,6 +186,16 @@ func (s *Session) audited(at attempt, exec func() (int, error)) error {
 			return &AuditError{Err: err}
 		}
 		return &DeniedError{Action: at.action, Reason: d.Reason}
+	}
+	write := policy.Actions[at.action].Write
+	if write {
+		intent := rec
+		intent.Args, intent.Outcome = maps.Clone(at.args), audit.OutcomeStarted
+		stored, err := s.log.Append(intent)
+		if err != nil {
+			return &AuditError{Err: err}
+		}
+		rec.IntentSeq = stored.Seq
 	}
 
 	var execErr error
@@ -200,7 +214,10 @@ func (s *Session) audited(at attempt, exec func() (int, error)) error {
 		rec.Outcome = audit.OutcomeOK
 	}
 	if _, err := s.log.Append(rec); err != nil {
-		return &AuditError{Err: err, Performed: execErr == nil && policy.Actions[at.action].Write}
+		if execErr == nil && at.file != "" {
+			s.files.Remove(at.file)
+		}
+		return &AuditError{Err: err, Performed: execErr == nil && write}
 	}
 	return execErr
 }

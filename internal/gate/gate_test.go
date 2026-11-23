@@ -27,6 +27,7 @@ type env struct {
 	log  string
 	// files is the directory agent paths resolve inside.
 	files string
+	acct  config.Account
 }
 
 func setup(t *testing.T, spec policy.Spec, opts testserver.Options) *env {
@@ -61,7 +62,7 @@ func setup(t *testing.T, spec policy.Spec, opts testserver.Options) *env {
 	}
 	sess := gate.New("test", pol, log, gate.Dialer(acct), gate.Outbound{}, agentfs.New(files))
 	t.Cleanup(func() { sess.Close(); log.Close() })
-	return &env{srv: srv, sess: sess, log: logPath, files: files}
+	return &env{srv: srv, sess: sess, log: logPath, files: files, acct: acct}
 }
 
 func (e *env) records(t *testing.T) []audit.Record {

@@ -76,7 +76,7 @@ Gmail label semantics fall out of plain IMAP. COPY into a label mailbox adds the
 
 ### Gate (`internal/gate`): the single choke point
 
-The CLI never touches the IMAP client directly. `gate.Session` owns the connection, the policy, and the audit writer. Every exported method runs these steps in order: check the policy, perform the action, then append one audit record. A denied action skips the IMAP call and returns a `*DeniedError`. For `send`, the decision covers every recipient, and a reply's mailbox also has to pass the read policy. The connection is opened lazily, so a denied action never runs `password_cmd` or dials. Results are returned only after their audit record is written; if that append fails, the gate returns an `*AuditError` (with `Performed` set when a write already happened) and withholds the results. Arguments the gate cannot act on, such as an unsupported flag or a bad part number, return a `*UsageError` before the policy check and are not audited. `Mailboxes()` filters LIST results through `MailboxAllowed`, so the agent never learns the names of disallowed labels.
+The CLI never touches the IMAP client directly. `gate.Session` owns the connection, the policy, and the audit writer. Every exported method runs these steps in order: check the policy, append an intent record for a write, perform the action, then append the outcome record. A denied action skips the IMAP call and returns a `*DeniedError`. For `send`, the decision covers every recipient, and a reply's mailbox also has to pass the read policy. The connection is opened lazily, so a denied action never runs `password_cmd` or dials. A write (every action with `Write` in the registry, `send` included) first appends a record with outcome `started` and its arguments, and `Append` syncs it to disk. If that append fails, the gate returns an `*AuditError` and makes no network call. The outcome record then names the intent in `intent_seq`. So a failed append, a kill, or a crash after the intent leaves an unfinished intent, never a change with no record. A read appends only its outcome record. Results are returned only after that record is written. If the outcome append fails, the gate returns an `*AuditError` (with `Performed` set when a write already happened) and withholds the results, and it removes a file that `attachment` wrote. Arguments the gate cannot act on, such as an unsupported flag or a bad part number, return a `*UsageError` before the policy check and are not audited. `Mailboxes()` filters LIST results through `MailboxAllowed`, so the agent never learns the names of disallowed labels.
 
 Two methods share the choke point without being IMAP actions:
 
@@ -109,7 +109,7 @@ Pure functions: `StripText`, `StripHTML`, and `IsForwardSubject`. `gate.Read` ca
 
 ### Audit (`internal/audit`)
 
-Append-only JSONL. One record per attempted action, written after the outcome is known:
+Append-only JSONL. A read or a denial writes one record after the outcome is known. A write that passes the policy writes two: an intent with outcome `started` before it runs, and its outcome after.
 
 ```go
 type Record struct {
@@ -121,19 +121,22 @@ type Record struct {
     Target  string    `json:"target,omitempty"`
     UIDs    []uint32  `json:"uids,omitempty"`
     Args    map[string]string `json:"args,omitempty"` // search criteria, flags, send recipients and hashes; never message bodies or credentials
-    Outcome string    `json:"outcome"` // "ok" | "denied" | "error"
+    Outcome string    `json:"outcome"` // "ok" | "denied" | "error" | "started"
     Reason  string    `json:"reason,omitempty"`
     Count   int       `json:"count,omitempty"` // results returned
+    IntentSeq uint64  `json:"intent_seq,omitempty"` // on an outcome: the seq of its "started" intent
     Prev    string    `json:"prev"`  // hex sha256 of previous record line ("" for seq 1)
     Hash    string    `json:"hash"`  // sha256(prev || canonical JSON of record with hash field empty)
 }
 ```
 
 - The audit log opens before the IMAP connection does. If the log cannot be opened or locked, the command fails closed and nothing reaches the server.
+- `RLIMIT_FSIZE` is inherited through `sudo`, so the caller can set it to the log's size and make every append fail with `EFBIG`. On unix, `Open` raises the soft limit to the hard limit, and refuses the log when the hard limit is less than 1 MiB past its end. The Go runtime ignores `SIGXFSZ`, so an append at the limit returns an error and does not kill the process.
+- `intent_seq` is `omitempty`, so a record written before intents existed keeps its bytes and its hash. Logs from earlier builds verify unchanged.
 - `prev` hashes the previous line exactly as stored. A record's stored bytes must equal its canonical encoding, so reformatting a line also breaks the chain.
 - An exclusive `flock` covers reading the last record and appending the next one, so concurrent agent processes keep the chain linear. This is unix-only behind a build tag (darwin, linux, and the BSDs). Elsewhere, including Windows, the lock is a no-op, documented as a caveat.
 - Opening the log takes the lock once and parses the last line. A log that ends in a partial or unreadable record is refused, so nothing is appended to a broken chain.
-- `scopedmail audit verify` recomputes the chain, reports the first broken seq, and on success prints `{"ok":true,"records":N,"head":HASH}`. `scopedmail audit tail [-n N]` (default 10) verifies the whole chain, then prints the last N records.
+- `scopedmail audit verify` recomputes the chain, reports the first broken seq, and on success prints `{"ok":true,"records":N,"head":HASH,"unfinished":[SEQ...]}`. An outcome must name an earlier unfinished intent of the same account and action, or the chain is broken at the outcome. `unfinished` lists the intents that no outcome closed. A crash leaves one, so verification still passes, and the operator checks the server for that action. `scopedmail audit tail [-n N]` (default 10) verifies the whole chain, then prints the last N records.
 - A hash chain cannot detect records removed from the end. The README tells operators to pin `head` somewhere the agent cannot write.
 - File mode is 0600, and a group- or world-writable log is refused.
 

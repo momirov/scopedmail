@@ -20,8 +20,9 @@ The agent never holds your mail credentials or an IMAP connection. It runs `scop
 1. Load and validate the config.
 2. Open and lock the audit log. If that fails, the command stops before any connection.
 3. Check the action against the policy. Most actions are checked against a mailbox. `send` is checked against every recipient. A denied action writes a `denied` record and exits with code 3. It never fetches credentials or connects.
-4. Connect over TLS, authenticate, and run the action. Read actions select the mailbox read-only (`EXAMINE`) and fetch with `BODY.PEEK`, so reading does not mark mail as read.
-5. Append one audit record with the outcome. The command prints its result only after that record is on disk.
+4. For an action that changes mail or sends it, append a `started` record and sync it to disk. If that fails, the command stops before any connection.
+5. Connect over TLS, authenticate, and run the action. Read actions select the mailbox read-only (`EXAMINE`) and fetch with `BODY.PEEK`, so reading does not mark mail as read.
+6. Append the outcome record. The command prints its result only after that record is on disk.
 
 `mailboxes` filters the server's folder list through the policy, so the agent does not learn the names of labels it cannot use.
 
@@ -324,7 +325,7 @@ The From address is always the account's `username`. The agent cannot set it or 
 
 ```console
 $ scopedmail send --to "Bob Example <bob@example.com>" --cc carol@other.org --subject "Report" --body "Attached." --attach report.txt
-{"message_id":"DN2Y5EQI3QQ0.11CYC5E5Y3QM9@example.test","ok":true,"recipients":["bob@example.com","carol@other.org"]}
+{"message_id":"DN2ZQ03HMX88.1S6U9VINDHMZU@example.test","ok":true,"recipients":["bob@example.com","carol@other.org"]}
 ```
 
 `recipients` lists each distinct address once, in To, Cc, Bcc order. The in-memory SMTP sink in `scripts/memserver` prints what it received:
@@ -374,10 +375,11 @@ A `send` record never holds the text or the subject of the outgoing message. A d
 | `message_id` | The Message-ID of the message that went out. Not set on a denial. |
 | `sha256` | SHA-256 of the full message as submitted. Not set on a denial. |
 
-A reply also sets `mailbox` and `uids` on the record. `count` is the number of recipients. This is the record for the `send` above:
+A reply also sets `mailbox` and `uids` on the record. `count` is the number of recipients. An allowed send writes two records. The `started` record goes to disk before scopedmail connects, and it has every key except `message_id` and `sha256`. These are the records for the `send` above:
 
 ```json
-{"seq":4,"time":"2026-11-23T22:34:15.624797Z","account":"demo","action":"send","args":{"attachments":"\"report.txt\":24","cc":"carol@other.org","message_id":"DN2Y5EQI3QQ0.11CYC5E5Y3QM9@example.test","sha256":"fe25a683d6540b03172dc942d3366fa5f1e378ddf24ae2f46d6a2aa2cdd8d758","subject_sha256":"b6ce788d9786917c9d19adaa0d904213365607c7f683d7277f508dcf142b4cc2","to":"bob@example.com"},"outcome":"ok","count":2,"prev":"aaf777ef0fe78ed0c8f22072e456174f06869a59b7464a695afdced2e2ee563e","hash":"b4b12f51ae1ebb8819ddaf501a16e35efc0f5b4d3f5dedacfc42030ac0963d78"}
+{"seq":8,"time":"2026-11-23T23:48:10.50542Z","account":"demo","action":"send","args":{"attachments":"\"report.txt\":23","cc":"carol@other.org","subject_sha256":"b6ce788d9786917c9d19adaa0d904213365607c7f683d7277f508dcf142b4cc2","to":"bob@example.com"},"outcome":"started","prev":"831abd1bfd65be446f4bc624f76d64f9e306190f523ac9f49e2cda54a1b98101","hash":"2a35daf3aff42b9ea6c9b0a91aa50548d1d48b19dca6e4545c6046c0f9317452"}
+{"seq":9,"time":"2026-11-23T23:48:10.516774Z","account":"demo","action":"send","args":{"attachments":"\"report.txt\":23","cc":"carol@other.org","message_id":"DN2ZQ03HMX88.1S6U9VINDHMZU@example.test","sha256":"b38cda5a89506482a0ebac10eed6de1b2613da285ca55db8b641035fe030610e","subject_sha256":"b6ce788d9786917c9d19adaa0d904213365607c7f683d7277f508dcf142b4cc2","to":"bob@example.com"},"outcome":"ok","count":2,"intent_seq":8,"prev":"e817de0b52b85039baa5d797c4fa29c97503ce07cd317131f97787b43b38f315","hash":"c0b67aac57249126e89a6a68a45452a5e61b857f28cbbb6f2057d3d48961d84d"}
 ```
 
 `sha256` lets you prove later which message a record describes, if you keep a copy of what was sent.
@@ -647,7 +649,7 @@ Stripping is a heuristic, and it errs toward removing a marker's whole tail.
 
 ## The audit log
 
-The audit log is a JSON Lines file with mode 0600. scopedmail appends one record per attempted action, after the outcome is known. A record never contains message bodies or credentials.
+The audit log is a JSON Lines file with mode 0600. A read or a denied action appends one record after the outcome is known. An allowed action that changes mail or sends it appends two records. The first has outcome `started` and is on disk before scopedmail connects. The second holds the outcome and names the first in `intent_seq`. A record never contains message bodies or credentials.
 
 ```json
 {"seq":4,"time":"2026-11-23T21:53:48.020779Z","account":"demo","action":"search","mailbox":"Private","args":{"limit":"50"},"outcome":"denied","reason":"mailbox \"Private\" is not in the allowlist","prev":"ff8eb7ff828edd6cdeccd7936558381c5594154f49fdeb532eea2a8fd39bc887","hash":"1d7918635640079c631cd1843fd5ecf8281e54f72187583d1ed964fbc4a8854a"}
@@ -662,20 +664,25 @@ The audit log is a JSON Lines file with mode 0600. scopedmail appends one record
 | `mailbox`, `target` | Source and target mailbox, when the action has them. |
 | `uids` | Message UIDs, when the action takes them. |
 | `args` | Search criteria, flags, attachment part and output path, and similar arguments. For `send`, see [what the audit log records](#what-the-audit-log-records). |
-| `outcome` | `ok`, `denied`, or `error`. |
+| `outcome` | `ok`, `denied`, `error`, or `started`. |
 | `reason` | Why the action was denied or failed. |
 | `count` | Number of results or messages affected. Omitted when zero. |
+| `intent_seq` | On an outcome record, the `seq` of its `started` record. Omitted on every other record. |
 | `prev` | SHA-256, in hex, of the previous line as stored. Empty for `seq` 1. |
 | `hash` | SHA-256 of `prev` followed by this record's JSON with `hash` set to `""`. |
 
 Each record commits to the one before it. Changing, removing, or reordering a record breaks the chain at that point. An exclusive `flock` covers reading the last record and writing the next, so agents that run scopedmail in parallel keep the chain in order. scopedmail refuses to append to a log whose last line is incomplete or unreadable.
 
-`audit verify` checks the whole chain and prints the record count and the hash of the newest record:
+`audit verify` checks the whole chain and prints the record count, the hash of the newest record, and the `seq` of each `started` record that has no outcome:
 
 ```console
 $ scopedmail audit verify
-{"head":"1ffed467f9077e055c7422b55a428ef3ce14c158bb3c5deb20249925cbd327f1","ok":true,"records":6}
+{"head":"3dcc897fab01d249d38944b787ce9ba75d9fbf603cbb169cb1744f63f519a83b","ok":true,"records":1,"unfinished":[1]}
 ```
+
+An unfinished record means scopedmail stopped between the two records, for example because it was killed or the disk filled. The action may or may not have reached the server. The chain is still valid, so `audit verify` reports `ok`. Check the server for the action that the unfinished record names. `audit tail` prints the unfinished record with its outcome `started`.
+
+On Linux, macOS, and the BSDs, scopedmail raises its soft file size limit (`ulimit -f`) to the hard limit when it opens the log. `sudo` passes the caller's limits on, so without this step an agent could set the limit to the log's current size and make every append fail. If the hard limit is less than 1 MiB past the end of the log, scopedmail refuses to run. `audit verify` and `audit tail` do not write, so they work under any limit.
 
 When the chain is broken, `audit verify` names the first bad record and exits with code 1:
 
@@ -691,7 +698,7 @@ $ scopedmail audit verify
 A hash chain cannot show that records were cut from the end. After someone removes the last records, the remaining log is still a valid, shorter chain, and `audit verify` passes. To catch that, save the `head` value from `audit verify` somewhere the agent cannot write, such as another machine or a log the agent's user cannot reach. Later, check that the saved hash still appears in the log:
 
 ```sh
-grep -c '"hash":"1ffed467f9077e055c7422b55a428ef3ce14c158bb3c5deb20249925cbd327f1"' ~/.local/state/scopedmail/audit.jsonl
+grep -c '"hash":"3dcc897fab01d249d38944b787ce9ba75d9fbf603cbb169cb1744f63f519a83b"' ~/.local/state/scopedmail/audit.jsonl
 ```
 
 A count of 0 means the record is gone.

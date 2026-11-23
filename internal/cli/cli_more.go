@@ -116,7 +116,10 @@ func runAudit(inv *invocation, args []string) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(inv.env.Stdout, map[string]any{"ok": true, "records": res.Records, "head": res.Head})
+	if res.Unfinished == nil {
+		res.Unfinished = []uint64{}
+	}
+	writeJSON(inv.env.Stdout, map[string]any{"ok": true, "records": res.Records, "head": res.Head, "unfinished": res.Unfinished})
 	return nil
 }
 
