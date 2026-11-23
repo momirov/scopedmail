@@ -1,0 +1,6 @@
+On Fri, Mar 6, 2026 at 10:12 AM Sam Ortiz <sam@example.com> wrote:
+
+> Hi, a few questions about the rollout.
+>
+> 1. Do we migrate the old mailboxes first?
+> 2. Who owns the DNS change?

@@ -1,0 +1,15 @@
+Can you look at this? The customer says the export is missing rows.
+
+---------- Forwarded message ---------
+From: Support Desk <support@example.com>
+Date: Fri, Mar 6, 2026 at 10:12 AM
+Subject: Missing rows in export
+To: Ines Silva <ines@example.com>
+
+Hello,
+
+The nightly export for March 5 has 1,204 rows. The ledger shows 1,310.
+Please check.
+
+> Earlier note from the customer:
+> The export is missing rows again.

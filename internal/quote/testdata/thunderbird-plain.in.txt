@@ -1,0 +1,9 @@
+The fix is in 4.2.1. Upgrade and the crash goes away.
+
+On 3/6/26 14:31, Chen Li wrote:
+> Hello,
+>
+> the importer crashes on files with a BOM. Is there a workaround until the
+> next release? I attached a sample file.
+>
+> Chen

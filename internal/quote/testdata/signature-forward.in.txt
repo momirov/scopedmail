@@ -1,0 +1,13 @@
+Please handle this one.
+
+-- 
+Tom Alvarez
+Platform Engineering
+
+---------- Forwarded message ---------
+From: Support Desk <support@example.com>
+Date: Fri, Mar 6, 2026 at 10:12 AM
+Subject: Refund request
+To: Tom Alvarez <tom@example.com>
+
+Customer 4471 asks for a refund of order 9918.

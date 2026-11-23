@@ -1,0 +1,13 @@
+Hi team,
+
+The postmortem notes that on Monday the SRE who was on call wrote: "restarted the
+worker, queue drained". That matches the graph, so I do not think we missed an
+alert.
+
+The RFC author wrote:
+keep the retry budget small, and never retry a non-idempotent call.
+
+On Tuesday Ana wrote: ship it. I took that as approval.
+
+Thanks,
+Ruth

@@ -1,0 +1,9 @@
+Hi Alice,
+
+Thanks, that works for us. We can ship the invoice export on Thursday as long
+as the audit trail stays in the same format.
+
+Can you confirm the retention period is still 90 days?
+
+Best,
+Bob

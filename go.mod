@@ -8,7 +8,8 @@ require (
 	github.com/emersion/go-message v0.18.2
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
 	github.com/emersion/go-smtp v0.26.0
+	golang.org/x/net v0.63.0
 	golang.org/x/sys v0.50.0
 )
 
-require golang.org/x/text v0.14.0 // indirect
+require golang.org/x/text v0.44.0 // indirect

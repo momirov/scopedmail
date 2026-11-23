@@ -1,0 +1,20 @@
+On Fri, Mar 6, 2026 at 10:12 AM Sam Ortiz <sam@example.com> wrote:
+
+> Hi, a few questions about the rollout.
+>
+> 1. Do we migrate the old mailboxes first?
+> 2. Who owns the DNS change?
+
+Yes, mailboxes first. We do them in batches of 50 so support can keep up.
+
+> 3. Is there a rollback plan?
+> If so, where is it written down?
+
+The rollback plan is in the runbook under "Mailbox migration". I will link it
+in the ticket.
+
+> Thanks,
+> Sam
+
+Cheers,
+Ines

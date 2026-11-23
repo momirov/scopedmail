@@ -1,0 +1,31 @@
+Hi Alice,
+
+Thanks, that works for us. We can ship the invoice export on Thursday as long
+as the audit trail stays in the same format.
+
+Can you confirm the retention period is still 90 days?
+
+Best,
+Bob
+
+On Mon, Mar 2, 2026 at 3:04 PM Alice Example <alice@example.com> wrote:
+
+> Hi Bob,
+>
+> Here is the plan for the invoice export. We would like to ship it this week
+> if the format is acceptable.
+>
+> 1. Export runs nightly at 02:00 UTC.
+> 2. Files land in the shared bucket, one per day.
+> 3. Failures page the on-call.
+>
+> Let me know what you think.
+>
+> Alice
+>
+> On Fri, Feb 27, 2026 at 9:12 AM Bob Example <bob@example.com> wrote:
+>
+> > Alice, could you send over the export plan before the review on Monday?
+> > We need it to decide whether to keep the old CSV job around.
+> >
+> > Bob

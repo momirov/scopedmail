@@ -1,0 +1,15 @@
+Confirmed, see you at 10:00.
+
+Peter
+
+________________________________
+From: Dana Whitfield <dana.whitfield@example.com>
+Sent: Wednesday, March 4, 2026 9:21 AM
+To: Peter Novak <peter.novak@example.com>
+Subject: Standup moved
+
+Hi Peter,
+
+Standup moved to 10:00 tomorrow because of the planning session.
+
+Dana

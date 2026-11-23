@@ -1,0 +1,13 @@
+[… 4 quoted lines removed]
+
+Yes, mailboxes first. We do them in batches of 50 so support can keep up.
+
+[… 2 quoted lines removed]
+
+The rollback plan is in the runbook under "Mailbox migration". I will link it
+in the ticket.
+
+[… 2 quoted lines removed]
+
+Cheers,
+Ines

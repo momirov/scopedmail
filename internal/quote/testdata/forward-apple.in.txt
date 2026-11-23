@@ -1,0 +1,13 @@
+FYI, see below.
+
+Begin forwarded message:
+
+From: Support Desk <support@example.com>
+Subject: Missing rows in export
+Date: March 6, 2026 at 10:12:00 AM GMT+1
+To: Ines Silva <ines@example.com>
+
+Hello,
+
+The nightly export for March 5 has 1,204 rows. The ledger shows 1,310.
+Please check.

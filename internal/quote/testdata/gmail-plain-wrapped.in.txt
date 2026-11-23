@@ -1,0 +1,12 @@
+Looks good to me. I merged the change and the build is green.
+
+Marko
+
+On Tue, Mar 3, 2026 at 11:47 AM Alexandra Constantinopolous-Papadakis <
+alexandra.constantinopolous@example.com> wrote:
+
+> Marko, can you review the attached patch when you get a chance? It only
+> touches the retry loop in the sync worker.
+>
+> Thanks,
+> Alexandra

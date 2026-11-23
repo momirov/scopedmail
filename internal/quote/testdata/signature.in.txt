@@ -1,0 +1,11 @@
+Looks fine to me, ship it.
+
+--
+not a delimiter, no trailing space
+
+Thanks,
+Tom
+-- 
+Tom Alvarez
+Platform Engineering
+tom@example.com | +1 555 0100
