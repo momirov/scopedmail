@@ -194,7 +194,7 @@ func firstForward(lines []string) int {
 // delimiter goes. A forwarded message and everything after it is kept as
 // written. A body that would end up empty comes back unchanged.
 func StripText(body string) Result {
-	lines := strings.Split(body, "\n")
+	lines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
 	forward := firstForward(lines)
 
 	var out []string

@@ -121,7 +121,7 @@ func TestNothingToStripReturnsInputAndZeroCounts(t *testing.T) {
 func TestCountsDescribeWhatWasRemoved(t *testing.T) {
 	body := "Thanks.\n\nOn Mon, Mar 2, 2026 at 3:04 PM Al <al@example.com> wrote:\n> one\n> two\n"
 	r := quote.StripText(body)
-	if r.Text != "Thanks.\n" || r.RemovedLines != 4 || r.RemovedBytes != len(body)-len(r.Text) {
+	if r.Text != "Thanks.\n" || r.RemovedLines != 3 || r.RemovedBytes != len(body)-len(r.Text) {
 		t.Errorf("result = %+v", r)
 	}
 }
