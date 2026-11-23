@@ -669,3 +669,97 @@ func TestExplicitAccountFlagAndMissingAccount(t *testing.T) {
 		t.Errorf("err %v stderr %s", err, errb.String())
 	}
 }
+
+const replyEML = "Message-ID: <reply-1@example.test>\r\n" +
+	"In-Reply-To: <agent-1@example.test>\r\n" +
+	"Date: Mon, 02 Mar 2026 15:04:00 +0000\r\n" +
+	"From: Alice <alice@example.test>\r\n" +
+	"To: Agent <agent@example.test>\r\n" +
+	"Subject: Re: Invoice export\r\n" +
+	"MIME-Version: 1.0\r\n" +
+	"Content-Type: text/plain; charset=utf-8\r\n" +
+	"\r\n" +
+	"Thursday works. Please keep the audit trail format.\r\n" +
+	"\r\n" +
+	"On Fri, Feb 27, 2026 at 9:12 AM Agent <agent@example.test> wrote:\r\n" +
+	"> Can we ship the invoice export on Thursday?\r\n" +
+	"> The export runs nightly at 02:00 UTC.\r\n" +
+	"> Failures page the on-call.\r\n"
+
+func (f *fixture) appendMessage(mailbox, eml string) uint32 {
+	f.t.Helper()
+	path := filepath.Join(f.dir, "msg.eml")
+	if err := os.WriteFile(path, []byte(eml), 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+	r := f.run("append", "-m", mailbox, "--file", path)
+	if r.exit != 0 {
+		f.t.Fatalf("append: %d %s", r.exit, r.stderr)
+	}
+	var out struct{ UID uint32 }
+	r.json(f.t, &out)
+	return out.UID
+}
+
+func TestReadStripsQuotedHistoryUnlessKept(t *testing.T) {
+	f := newFixture(t, readOnlyPolicy+allActions)
+	uid := fmt.Sprint(f.appendMessage("Agent/Sub", replyEML))
+
+	type readOut struct {
+		Text          string
+		Raw           string
+		QuotesRemoved *struct{ Bytes, Lines int } `json:"quotes_removed"`
+	}
+	read := func(args ...string) readOut {
+		t.Helper()
+		r := f.run(append([]string{"read", "-m", "Agent/Sub", uid}, args...)...)
+		if r.exit != 0 {
+			t.Fatalf("read %v: exit %d: %s", args, r.exit, r.stderr)
+		}
+		var out readOut
+		r.json(t, &out)
+		return out
+	}
+
+	stripped := read()
+	if want := "Thursday works. Please keep the audit trail format.\n"; strings.ReplaceAll(stripped.Text, "\r\n", "\n") != want {
+		t.Errorf("stripped text = %q, want %q", stripped.Text, want)
+	}
+	if stripped.QuotesRemoved == nil || stripped.QuotesRemoved.Lines != 4 || stripped.QuotesRemoved.Bytes < 150 {
+		t.Errorf("quotes_removed = %+v, want 4 lines and at least 150 bytes", stripped.QuotesRemoved)
+	}
+	if got := f.lastRecord(); got.Action != "read" || got.Args["keep_quotes"] != "" {
+		t.Errorf("default read audit = %+v", got)
+	}
+
+	kept := read("--keep-quotes")
+	if !strings.Contains(kept.Text, "Can we ship the invoice export on Thursday?") || !strings.Contains(kept.Text, "wrote:") {
+		t.Errorf("--keep-quotes text = %q", kept.Text)
+	}
+	if kept.QuotesRemoved != nil {
+		t.Errorf("--keep-quotes reported quotes_removed = %+v", kept.QuotesRemoved)
+	}
+	if got := f.lastRecord(); got.Args["keep_quotes"] != "true" {
+		t.Errorf("--keep-quotes audit args = %v", got.Args)
+	}
+
+	raw := read("--raw")
+	if !strings.Contains(raw.Raw, "> Failures page the on-call.") || raw.QuotesRemoved != nil {
+		t.Errorf("--raw must not strip: %+v", raw)
+	}
+}
+
+func TestReadKeepsAForwardUnstripped(t *testing.T) {
+	f := newFixture(t, readOnlyPolicy+allActions)
+	eml := strings.Replace(replyEML, "Subject: Re: Invoice export", "Subject: Fwd: Invoice export", 1)
+	uid := fmt.Sprint(f.appendMessage("Agent/Sub", eml))
+	r := f.run("read", "-m", "Agent/Sub", uid)
+	var out struct {
+		Text          string
+		QuotesRemoved any `json:"quotes_removed"`
+	}
+	r.json(t, &out)
+	if !strings.Contains(out.Text, "Failures page the on-call.") || out.QuotesRemoved != nil {
+		t.Errorf("a forward subject must not be stripped: %+v", out)
+	}
+}

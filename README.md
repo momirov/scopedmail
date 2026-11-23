@@ -305,10 +305,14 @@ $ scopedmail search -m Agent --unseen --limit 5
 ### `read`
 
 ```
-read -m MBOX UID [--raw] [--html]
+read -m MBOX UID [--raw] [--html] [--keep-quotes]
 ```
 
 Returns the headers, the plain-text body, and a list of attachments. `--html` adds the HTML body. A message with no plain-text part returns its HTML body without the flag. `--raw` returns the full message source in `raw` and skips body parsing. `read` does not set `\Seen`.
+
+A reply carries the thread it answers below the new text, and an agent that reads the thread pays for that history again with each reply. `read` removes it by default. It cuts the "On ... wrote:" line and everything after it (in English, German, French, Spanish, Italian, Dutch, Portuguese, and Serbian or Croatian), Outlook's "Original Message" and "From: ... Sent: ..." blocks, and the quote markup of Gmail, Outlook, Apple Mail, Thunderbird, and Yahoo. It collapses each run of `>` lines that has a reply after it into one `[… N quoted lines removed]` line, and drops a run at the end. It drops a signature after a `-- ` line. It keeps forwarded messages, and it keeps any message it would empty. When it is unsure, it keeps the text.
+
+When it removes something, the output has `"quotes_removed":{"bytes":N,"lines":M}`, which counts the original text and html fields together. Without that field, nothing was removed. `--keep-quotes` returns the bodies as sent. `--raw` is never stripped. With `--keep-quotes`, the audit record for the read has the argument `keep_quotes=true`. A message whose subject starts with `Fwd:`, `FW:`, `WG:`, `TR:`, `RV:`, or `ENC:` is not stripped, because Outlook marks a reply and a forward the same way.
 
 ```console
 $ scopedmail read -m Agent 2 --html

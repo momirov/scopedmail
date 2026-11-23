@@ -64,7 +64,7 @@ func init() {
 	commands = []command{
 		{"mailboxes", "mailboxes", runMailboxes},
 		{"search", "search -m MBOX [--from S --to S --subject S --body S --text S --since DATE --before DATE --seen|--unseen --flagged --limit N]", runSearch},
-		{"read", "read -m MBOX UID [--raw] [--html]", runRead},
+		{"read", "read -m MBOX UID [--raw] [--html] [--keep-quotes]", runRead},
 		{"attachment", "attachment -m MBOX UID --part P --out FILE", runAttachment},
 		{"flag", "flag -m MBOX [--add F,..] [--remove F,..] UID...", runFlag},
 		{"copy", "copy -m MBOX --to MBOX UID...", runCopy},
@@ -325,6 +325,7 @@ func runRead(inv *invocation, args []string) error {
 	fs.StringVar(&mailbox, "m", "", "mailbox")
 	fs.BoolVar(&opt.Raw, "raw", false, "")
 	fs.BoolVar(&opt.HTML, "html", false, "")
+	fs.BoolVar(&opt.KeepQuotes, "keep-quotes", false, "")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err

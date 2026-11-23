@@ -15,6 +15,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 
 	"github.com/momirov/scopedmail/internal/policy"
+	"github.com/momirov/scopedmail/internal/quote"
 )
 
 type MailboxInfo struct {
@@ -247,6 +248,15 @@ type AttachmentInfo struct {
 type ReadOptions struct {
 	Raw  bool
 	HTML bool
+	// KeepQuotes returns the bodies as sent, with the quoted reply history.
+	KeepQuotes bool
+}
+
+// QuotesRemoved tells the reader how much quoted history Read left out of the
+// text and html fields together. Bytes and lines count the original content.
+type QuotesRemoved struct {
+	Bytes int `json:"bytes"`
+	Lines int `json:"lines"`
 }
 
 type Message struct {
@@ -256,6 +266,8 @@ type Message struct {
 	HTML        string           `json:"html,omitempty"`
 	Raw         string           `json:"raw,omitempty"`
 	Attachments []AttachmentInfo `json:"attachments"`
+	// QuotesRemoved is set only when Read removed something.
+	QuotesRemoved *QuotesRemoved `json:"quotes_removed,omitempty"`
 }
 
 var structureFetch = &imap.FetchOptions{
@@ -277,6 +289,9 @@ func (s *Session) Read(mailbox string, uid uint32, opt ReadOptions) (*Message, e
 	}
 	if opt.HTML {
 		args["html"] = "true"
+	}
+	if opt.KeepQuotes {
+		args["keep_quotes"] = "true"
 	}
 	var out *Message
 	err := s.run(attempt{action: policy.Read, mailbox: mailbox, uids: []uint32{uid}, args: args}, func(c *imapclient.Client) (int, error) {
@@ -330,16 +345,34 @@ func (s *Session) Read(mailbox string, uid uint32, opt ReadOptions) (*Message, e
 			if err != nil {
 				return 0, err
 			}
+			// A forward is new content, and Outlook marks a reply and a
+			// forward the same way, so a forward subject is never stripped.
+			strip := !opt.KeepQuotes && !quote.IsForwardSubject(m.Subject)
 			var texts, htmls []string
+			var removed QuotesRemoved
 			for i, l := range fetch {
 				t := decodeText(body.FindBodySection(sections[i]), l)
-				if l.mediaType() == "text/html" {
+				isHTML := l.mediaType() == "text/html"
+				if strip {
+					stripper := quote.StripText
+					if isHTML {
+						stripper = quote.StripHTML
+					}
+					res := stripper(t)
+					t = res.Text
+					removed.Bytes += res.RemovedBytes
+					removed.Lines += res.RemovedLines
+				}
+				if isHTML {
 					htmls = append(htmls, t)
 				} else {
 					texts = append(texts, t)
 				}
 			}
 			m.Text, m.HTML = strings.Join(texts, "\n"), strings.Join(htmls, "\n")
+			if removed.Bytes > 0 {
+				m.QuotesRemoved = &removed
+			}
 		}
 		out = m
 		return 1, nil
