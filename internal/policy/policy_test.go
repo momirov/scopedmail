@@ -1,0 +1,214 @@
+package policy
+
+import (
+	"strings"
+	"testing"
+)
+
+func mustPolicy(t *testing.T, s Spec) Policy {
+	t.Helper()
+	p, err := New(s)
+	if err != nil {
+		t.Fatalf("New(%+v): %v", s, err)
+	}
+	return p
+}
+
+func TestMailboxAllowed(t *testing.T) {
+	tests := []struct {
+		name string
+		spec Spec
+		box  string
+		want bool
+	}{
+		{"default deny with empty allow", Spec{}, "INBOX", false},
+		{"exact allow", Spec{Allow: []string{"Agent"}}, "Agent", true},
+		{"exact allow does not cover children", Spec{Allow: []string{"Agent"}}, "Agent/Sub", false},
+		{"unlisted mailbox denied", Spec{Allow: []string{"Agent"}}, "Private", false},
+		{"names are case sensitive", Spec{Allow: []string{"Agent"}}, "agent", false},
+		{"wildcard covers descendants", Spec{Allow: []string{"Receipts/*"}}, "Receipts/2026", true},
+		{"wildcard covers deep descendants", Spec{Allow: []string{"Receipts/*"}}, "Receipts/2026/Q1", true},
+		{"wildcard excludes the prefix itself", Spec{Allow: []string{"Receipts/*"}}, "Receipts", false},
+		{"wildcard needs a segment boundary", Spec{Allow: []string{"Receipts/*"}}, "ReceiptsExtra/x", false},
+		{"INBOX allow matches lowercase", Spec{Allow: []string{"INBOX"}}, "inbox", true},
+		{"INBOX allow matches mixed case", Spec{Allow: []string{"INBOX"}}, "InBox", true},
+		{"lowercase INBOX pattern matches", Spec{Allow: []string{"inbox"}}, "INBOX", true},
+		{"INBOX wildcard matches case-insensitively", Spec{Allow: []string{"INBOX/*"}}, "inbox/Work", true},
+		{"INBOX rule does not leak to other names", Spec{Allow: []string{"INBOX"}}, "INBOXES", false},
+		{"deny wins over exact allow", Spec{Allow: []string{"Agent"}, Deny: []string{"Agent"}}, "Agent", false},
+		{"deny carves a hole in a wildcard", Spec{Allow: []string{"Receipts/*"}, Deny: []string{"Receipts/Tax"}}, "Receipts/Tax", false},
+		{"deny leaves siblings alone", Spec{Allow: []string{"Receipts/*"}, Deny: []string{"Receipts/Tax"}}, "Receipts/Food", true},
+		{"deny is case-insensitive", Spec{Allow: []string{"Receipts/*"}, Deny: []string{"Receipts/Tax"}}, "Receipts/tax", false},
+		{"deny wildcard covers descendants", Spec{Allow: []string{"Receipts/*"}, Deny: []string{"Receipts/Tax/*"}}, "Receipts/Tax/2025", false},
+
+		{"gmail all mail denied by default", Spec{Allow: []string{"Agent"}}, "[Gmail]/All Mail", false},
+		{"gmail all mail allowed by exact name", Spec{Allow: []string{"[Gmail]/All Mail"}}, "[Gmail]/All Mail", true},
+		{"google mail variant denied by default", Spec{Allow: []string{"Agent"}}, "[Google Mail]/All Mail", false},
+		{"google mail variant allowed by exact name", Spec{Allow: []string{"[Google Mail]/All Mail"}}, "[Google Mail]/All Mail", true},
+		{"exact allow of one system folder leaves the others denied", Spec{Allow: []string{"[Gmail]/Drafts"}}, "[Gmail]/Spam", false},
+		{"deny beats exact allow of system folder", Spec{Allow: []string{"[Gmail]/Drafts"}, Deny: []string{"[Gmail]/Drafts"}}, "[Gmail]/Drafts", false},
+		{"system folder casing cannot dodge the rule", Spec{Allow: []string{"Agent"}}, "[GMAIL]/All Mail", false},
+		{"unlisted gmail folder denied", Spec{Allow: []string{"Agent"}}, "[Gmail]/Bin", false},
+		{"gmail container denied", Spec{Allow: []string{"Agent"}}, "[Gmail]", false},
+
+		{"dotdot segment rejected", Spec{Allow: []string{"Receipts/*"}}, "Receipts/../Private", false},
+		{"dot segment rejected", Spec{Allow: []string{"Receipts/*"}}, "Receipts/./x", false},
+		{"empty segment rejected", Spec{Allow: []string{"Receipts/*"}}, "Receipts//x", false},
+		{"trailing delimiter rejected", Spec{Allow: []string{"Receipts/*"}}, "Receipts/", false},
+		{"wildcard in name rejected", Spec{Allow: []string{"Agent"}}, "Agent*", false},
+		{"percent in name rejected", Spec{Allow: []string{"Receipts/*"}}, "Receipts/%", false},
+		{"control char rejected", Spec{Allow: []string{"Receipts/*"}}, "Receipts/a\x00b", false},
+		{"empty name rejected", Spec{Allow: []string{"Agent"}}, "", false},
+		{"surrounding space rejected", Spec{Allow: []string{"Agent"}}, " Agent", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := mustPolicy(t, tt.spec)
+			if got := p.MailboxAllowed(tt.box); got != tt.want {
+				t.Errorf("MailboxAllowed(%q) = %v, want %v", tt.box, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheck(t *testing.T) {
+	all := []string{"mailboxes", "search", "read", "attachment", "flag", "copy", "move", "delete", "append", "create-mailbox"}
+	p := mustPolicy(t, Spec{
+		Allow:   []string{"Agent", "Receipts/*"},
+		Deny:    []string{"Receipts/Tax"},
+		Actions: all,
+		Trash:   "[Gmail]/Trash",
+	})
+	tests := []struct {
+		name            string
+		action          Action
+		mailbox, target string
+		want            bool
+		reasonContains  string
+	}{
+		{"read allowed mailbox", Read, "Agent", "", true, ""},
+		{"read denied mailbox", Read, "Private", "", false, "not in the allowlist"},
+		{"search denied system folder", Search, "[Gmail]/All Mail", "", false, "Gmail system folder"},
+		{"mailboxes needs no mailbox", Mailboxes, "", "", true, ""},
+		{"copy needs both ends: ok", Copy, "Agent", "Receipts/Food", true, ""},
+		{"copy to unallowed target denied", Copy, "Agent", "Private", false, "target:"},
+		{"copy from unallowed source denied", Copy, "Private", "Agent", false, "not in the allowlist"},
+		{"copy into denied target denied", Copy, "Agent", "Receipts/Tax", false, "deny rule"},
+		{"copy into gmail all mail denied", Copy, "Agent", "[Gmail]/All Mail", false, "Gmail system folder"},
+		{"copy without target denied", Copy, "Agent", "", false, "needs a target"},
+		{"move to unallowed target denied", Move, "Agent", "Private", false, "target:"},
+		{"move ok", Move, "Agent", "Receipts/Food", true, ""},
+		{"delete checks only the source", Delete, "Agent", "", true, ""},
+		{"delete source denied", Delete, "Private", "", false, "not in the allowlist"},
+		{"flag allowed", Flag, "Agent", "", true, ""},
+		{"append allowed", Append, "Agent", "", true, ""},
+		{"append denied", Append, "Private", "", false, "not in the allowlist"},
+		{"create-mailbox under allowed prefix", CreateMailbox, "Receipts/New", "", true, ""},
+		{"create-mailbox elsewhere denied", CreateMailbox, "Elsewhere", "", false, "not in the allowlist"},
+		{"unknown action denied", Action("expunge-all"), "Agent", "", false, "unknown action"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := p.Check(tt.action, tt.mailbox, tt.target)
+			if d.Allowed != tt.want {
+				t.Fatalf("Check(%s, %q, %q) = %+v, want allowed=%v", tt.action, tt.mailbox, tt.target, d, tt.want)
+			}
+			if !strings.Contains(d.Reason, tt.reasonContains) {
+				t.Errorf("reason %q does not contain %q", d.Reason, tt.reasonContains)
+			}
+		})
+	}
+}
+
+func TestDefaultActionsAreReadOnly(t *testing.T) {
+	p := mustPolicy(t, Spec{Allow: []string{"Agent"}})
+	for _, a := range AllActions() {
+		want := !Actions[a].Write
+		if got := p.ActionEnabled(a); got != want {
+			t.Errorf("default ActionEnabled(%s) = %v, want %v", a, got, want)
+		}
+	}
+	if d := p.Check(Copy, "Agent", "Agent/Sub"); d.Allowed || !strings.Contains(d.Reason, "not enabled") {
+		t.Errorf("copy under default policy = %+v, want denied as not enabled", d)
+	}
+}
+
+func TestExplicitActionsDisableTheRest(t *testing.T) {
+	p := mustPolicy(t, Spec{Allow: []string{"Agent"}, Actions: []string{"read"}})
+	if d := p.Check(Search, "Agent", ""); d.Allowed {
+		t.Errorf("search should be disabled when only read is listed: %+v", d)
+	}
+	if d := p.Check(Read, "Agent", ""); !d.Allowed {
+		t.Errorf("read should be enabled: %+v", d)
+	}
+}
+
+func TestNewRejectsBadSpecs(t *testing.T) {
+	tests := []struct {
+		name string
+		spec Spec
+	}{
+		{"bare star allow", Spec{Allow: []string{"*"}}},
+		{"bare star deny", Spec{Deny: []string{"*"}}},
+		{"star in the middle", Spec{Allow: []string{"A*/b"}}},
+		{"star prefix of path", Spec{Allow: []string{"*/b"}}},
+		{"empty pattern", Spec{Allow: []string{""}}},
+		{"empty prefix wildcard", Spec{Allow: []string{"/*"}}},
+		{"dotdot in pattern", Spec{Allow: []string{"a/../b"}}},
+		{"unknown action", Spec{Allow: []string{"A"}, Actions: []string{"nuke"}}},
+		{"gmail wildcard allow", Spec{Allow: []string{"[Gmail]/*"}}},
+		{"google mail wildcard allow", Spec{Allow: []string{"[Google Mail]/*"}}},
+		{"bad trash", Spec{Trash: "a/../b"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := New(tt.spec); err == nil {
+				t.Errorf("New(%+v) succeeded, want error", tt.spec)
+			}
+		})
+	}
+}
+
+func TestCanonicalINBOX(t *testing.T) {
+	for in, want := range map[string]string{
+		"inbox":      "INBOX",
+		"Inbox/Work": "INBOX/Work",
+		"INBOX":      "INBOX",
+		"Agent":      "Agent",
+		"inboxes":    "inboxes",
+	} {
+		if got := Canonical(in); got != want {
+			t.Errorf("Canonical(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestTrashIsNotSubjectToTheAllowlist(t *testing.T) {
+	p := mustPolicy(t, Spec{Allow: []string{"Agent"}, Actions: []string{"delete"}, Trash: "[Gmail]/Trash"})
+	if p.Trash() != "[Gmail]/Trash" {
+		t.Fatalf("Trash() = %q", p.Trash())
+	}
+	if p.MailboxAllowed("[Gmail]/Trash") {
+		t.Error("the trash sink must not become readable just because it is the sink")
+	}
+	if d := p.Check(Delete, "Agent", ""); !d.Allowed {
+		t.Errorf("delete from allowed mailbox with trash configured: %+v", d)
+	}
+}
+
+func TestEveryActionHasASpecAndDefaultsAreConsistent(t *testing.T) {
+	want := []Action{Mailboxes, Search, Read, Attachment, Flag, Copy, Move, Delete, Append, CreateMailbox}
+	if len(Actions) != len(want) {
+		t.Fatalf("registry has %d actions, want %d", len(Actions), len(want))
+	}
+	for _, a := range want {
+		if _, ok := Actions[a]; !ok {
+			t.Errorf("action %s missing from registry", a)
+		}
+	}
+	for _, a := range []Action{Copy, Move} {
+		if !Actions[a].Target {
+			t.Errorf("%s must take a target", a)
+		}
+	}
+}
