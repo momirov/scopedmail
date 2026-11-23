@@ -52,6 +52,33 @@ type invocation struct {
 	account    string
 }
 
+// globalFlag is a string flag that may be given once and not empty. A repeated
+// --config would otherwise let the last one win and defeat a wrapper or a
+// sudoers rule that pins the first. An empty --config would fall through to
+// $SCOPEDMAIL_CONFIG.
+type globalFlag struct {
+	dst *string
+	set bool
+}
+
+func (g *globalFlag) String() string {
+	if g == nil || g.dst == nil {
+		return ""
+	}
+	return *g.dst
+}
+
+func (g *globalFlag) Set(v string) error {
+	switch {
+	case g.set:
+		return errors.New("given more than once")
+	case v == "":
+		return errors.New("must not be empty")
+	}
+	g.set, *g.dst = true, v
+	return nil
+}
+
 type command struct {
 	name  string
 	usage string
@@ -92,8 +119,8 @@ func usageText() string {
 func Run(args []string, env Env) int {
 	inv := &invocation{env: env}
 	fs := newFlagSet("scopedmail")
-	fs.StringVar(&inv.configPath, "config", "", "config file")
-	fs.StringVar(&inv.account, "account", "", "account name")
+	fs.Var(&globalFlag{dst: &inv.configPath}, "config", "config file")
+	fs.Var(&globalFlag{dst: &inv.account}, "account", "account name")
 	err := fs.Parse(args)
 	rest := fs.Args()
 	switch {
