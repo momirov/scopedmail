@@ -2,4 +2,7 @@ module github.com/momirov/labelgate
 
 go 1.27.4
 
-require golang.org/x/sys v0.50.0
+require (
+	github.com/BurntSushi/toml v1.6.0
+	golang.org/x/sys v0.50.0
+)
