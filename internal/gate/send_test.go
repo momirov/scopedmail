@@ -53,7 +53,7 @@ func setupSend(t *testing.T, smtpOpts testserver.SMTPOptions, spec policy.Spec) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess := gate.New("test", pol, log, gate.Dialer(acct), gate.SMTPOutbound(acct))
+	sess := gate.New("test", pol, log, gate.Dialer(acct), gate.SMTPOutbound(acct), nil)
 	t.Cleanup(func() { sess.Close(); log.Close() })
 	return &sendEnv{env: &env{srv: imapSrv, sess: sess, log: logPath}, smtp: smtpSrv}
 }
@@ -380,7 +380,7 @@ func TestSendRefusesUntrustedSMTPCertificate(t *testing.T) {
 		Host: e.srv.Host, Port: e.srv.Port, Username: testserver.Username, Auth: config.AuthPassword, PasswordEnv: "GATE_TEST_PW",
 		Policy: pol, SMTP: config.SMTP{Host: e.smtp.Host, Port: e.smtp.Port},
 	}
-	sess := gate.New("x", pol, log, gate.Dialer(acct), gate.SMTPOutbound(acct))
+	sess := gate.New("x", pol, log, gate.Dialer(acct), gate.SMTPOutbound(acct), nil)
 	if _, err := sess.Send(gate.Outgoing{To: []string{"alice@example.com"}, Subject: "s", Text: "b"}); err == nil {
 		t.Fatal("sent through a server whose certificate is not trusted")
 	}

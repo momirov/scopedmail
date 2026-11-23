@@ -5,11 +5,14 @@
 package gate
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/emersion/go-imap/v2/imapclient"
 
+	"github.com/momirov/scopedmail/internal/agentfs"
 	"github.com/momirov/scopedmail/internal/audit"
 	"github.com/momirov/scopedmail/internal/policy"
 )
@@ -24,17 +27,23 @@ type Session struct {
 	log      *audit.Log
 	connect  ConnectFunc
 	outbound Outbound
+	files    *agentfs.Dir
 	client   *imapclient.Client
 }
 
 // New takes an already-open audit log: callers open it before anything can
 // reach the network, and fail closed when they cannot. outbound is the zero
-// value for a session that never sends.
-func New(account string, pol policy.Policy, log *audit.Log, connect ConnectFunc, outbound Outbound) *Session {
-	return &Session{account: account, policy: pol, log: log, connect: connect, outbound: outbound}
+// value for a session that never sends. files is the one place agent-supplied
+// paths resolve; nil means file paths are off.
+func New(account string, pol policy.Policy, log *audit.Log, connect ConnectFunc, outbound Outbound, files *agentfs.Dir) *Session {
+	if files == nil {
+		files = agentfs.New("")
+	}
+	return &Session{account: account, policy: pol, log: log, connect: connect, outbound: outbound, files: files}
 }
 
 func (s *Session) Close() error {
+	s.files.Close()
 	if s.client == nil {
 		return nil
 	}
@@ -85,6 +94,8 @@ type attempt struct {
 	mailbox string
 	target  string
 	uids    []uint32
+	// file is a path the action will create, checked before any connection.
+	file string
 	// recipients is every To, Cc and Bcc address of a send.
 	recipients []string
 	// args is recorded as given. An action may add entries while it runs, for
@@ -116,6 +127,16 @@ func clip(s string) string {
 // decide is the one policy question for an attempt. A send is judged by its
 // recipients, and by the read policy on the message it replies to.
 func (s *Session) decide(at attempt) policy.Decision {
+	d := s.decideAction(at)
+	if d.Allowed && at.file != "" {
+		if err := s.files.Check(at.file); err != nil {
+			return policy.Decision{Reason: err.Error()}
+		}
+	}
+	return d
+}
+
+func (s *Session) decideAction(at attempt) policy.Decision {
 	if !policy.Actions[at.action].Recipients {
 		return s.policy.Check(at.action, at.mailbox, at.target)
 	}
@@ -165,13 +186,44 @@ func (s *Session) audited(at attempt, exec func() (int, error)) error {
 
 	var execErr error
 	rec.Count, execErr = exec()
-	if execErr != nil {
+	var badPath *agentfs.Denied
+	if errors.As(execErr, &badPath) {
+		execErr = &DeniedError{Action: at.action, Reason: badPath.Error()}
+	}
+	var denied *DeniedError
+	switch {
+	case errors.As(execErr, &denied):
+		rec.Outcome, rec.Reason, rec.Count = audit.OutcomeDenied, clip(denied.Reason), 0
+	case execErr != nil:
 		rec.Outcome, rec.Reason, rec.Count = audit.OutcomeError, clip(execErr.Error()), 0
-	} else {
+	default:
 		rec.Outcome = audit.OutcomeOK
 	}
 	if _, err := s.log.Append(rec); err != nil {
 		return &AuditError{Err: err, Performed: execErr == nil && policy.Actions[at.action].Write}
 	}
 	return execErr
+}
+
+// OpenFile opens a file the agent named, for action, through files_dir. A path
+// the agent may not use is recorded as a denial before the error returns, so
+// the log shows the attempt even though no action ran. The caller closes the
+// file.
+func (s *Session) OpenFile(action policy.Action, path string) (*os.File, os.FileInfo, error) {
+	f, info, err := s.files.Open(path)
+	var badPath *agentfs.Denied
+	if !errors.As(err, &badPath) {
+		return f, info, err
+	}
+	rec := audit.Record{
+		Account: s.account,
+		Action:  string(action),
+		Args:    map[string]string{"file": clip(path)},
+		Outcome: audit.OutcomeDenied,
+		Reason:  clip(badPath.Error()),
+	}
+	if _, aerr := s.log.Append(rec); aerr != nil {
+		return nil, nil, &AuditError{Err: aerr}
+	}
+	return nil, nil, &DeniedError{Action: action, Reason: badPath.Error()}
 }

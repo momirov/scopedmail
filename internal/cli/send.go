@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"io"
 	"net/mail"
@@ -9,7 +10,9 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/momirov/scopedmail/internal/agentfs"
 	"github.com/momirov/scopedmail/internal/gate"
+	"github.com/momirov/scopedmail/internal/policy"
 )
 
 // multiFlag collects a repeatable flag.
@@ -18,22 +21,24 @@ type multiFlag []string
 func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
 func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
-// readAgentFile is the one place send reads a path the agent supplied
-// (--body-file, --html-file, --attach). Whatever limits which files an agent
-// may read belongs here and nowhere else.
-func readAgentFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
+// openAgentFile is the one place a command opens a path the agent supplied
+// (send --body-file, --html-file and --attach, append --file). Which paths may
+// be opened, and the audit record for one that may not, belong to the session
+// and agentfs, so nothing here decides.
+func openAgentFile(s *gate.Session, action policy.Action, path string) (*os.File, os.FileInfo, error) {
+	f, info, err := s.OpenFile(action, path)
+	if errors.Is(err, agentfs.ErrNotRegular) {
+		return nil, nil, usagef("%v", err)
+	}
+	return f, info, err
+}
+
+func readAgentFile(s *gate.Session, action policy.Action, path string) ([]byte, error) {
+	f, _, err := openAgentFile(s, action, path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, usagef("%s is not a regular file", path)
-	}
 	return readCapped(f, path)
 }
 
@@ -144,38 +149,41 @@ func runSend(inv *invocation, args []string) error {
 	switch {
 	case bodySet:
 		out.Text = body
-	case bodyFile != "":
-		b, err := readAgentFile(bodyFile)
-		if err != nil {
-			return err
-		}
-		out.Text = string(b)
-	case inv.env.Stdin != nil:
+	case bodyFile == "" && inv.env.Stdin != nil:
 		b, err := readCapped(inv.env.Stdin, "stdin")
 		if err != nil {
 			return err
 		}
 		out.Text = string(b)
 	}
-	if htmlFile != "" {
-		b, err := readAgentFile(htmlFile)
-		if err != nil {
-			return err
-		}
-		out.HTML = string(b)
-	}
 	for _, path := range attach {
 		if err := noCRLF("attach", path); err != nil {
 			return err
 		}
-		data, err := readAgentFile(path)
-		if err != nil {
-			return err
-		}
-		out.Attachments = append(out.Attachments, gate.Attachment{Name: filepath.Base(path), Data: data})
 	}
 
 	return inv.withSession(func(s *gate.Session) error {
+		if bodyFile != "" {
+			b, err := readAgentFile(s, policy.Send, bodyFile)
+			if err != nil {
+				return err
+			}
+			out.Text = string(b)
+		}
+		if htmlFile != "" {
+			b, err := readAgentFile(s, policy.Send, htmlFile)
+			if err != nil {
+				return err
+			}
+			out.HTML = string(b)
+		}
+		for _, path := range attach {
+			data, err := readAgentFile(s, policy.Send, path)
+			if err != nil {
+				return err
+			}
+			out.Attachments = append(out.Attachments, gate.Attachment{Name: filepath.Base(path), Data: data})
+		}
 		res, err := s.Send(out)
 		if err != nil {
 			return err

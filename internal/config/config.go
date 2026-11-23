@@ -13,6 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/momirov/scopedmail/internal/agentfs"
 	"github.com/momirov/scopedmail/internal/fsperm"
 	"github.com/momirov/scopedmail/internal/policy"
 )
@@ -40,6 +41,11 @@ type Account struct {
 	PasswordCmd    []string
 	PasswordEnv    string
 	OAuth2TokenCmd []string
+
+	// FilesDir is the one directory agent-supplied file paths may name. Empty
+	// means file paths are off: append --file, attachment --out and the send
+	// file flags are refused.
+	FilesDir string
 
 	// SMTP is where send delivers. It is the zero value unless send is
 	// enabled or an [smtp] table is present.
@@ -83,6 +89,7 @@ type rawAccount struct {
 	PasswordCmd    []string  `toml:"password_cmd"`
 	PasswordEnv    string    `toml:"password_env"`
 	OAuth2TokenCmd []string  `toml:"oauth2_token_cmd"`
+	FilesDir       string    `toml:"files_dir"`
 	Policy         rawPolicy `toml:"policy"`
 	SMTP           rawSMTP   `toml:"smtp"`
 }
@@ -146,7 +153,11 @@ func Load(path string) (*Config, error) {
 	if err := rejectUndecoded(md.Undecoded()); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
-	cfg, err := build(raw, filepath.Dir(path))
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	cfg, err := build(raw, abs)
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
@@ -170,7 +181,8 @@ func rejectUndecoded(keys []toml.Key) error {
 	return fmt.Errorf("unknown key %s", strings.Join(names, ", "))
 }
 
-func build(raw rawConfig, dir string) (*Config, error) {
+func build(raw rawConfig, path string) (*Config, error) {
+	dir := filepath.Dir(path)
 	cfg := &Config{DefaultAccount: raw.DefaultAccount, Accounts: map[string]Account{}}
 	var err error
 	if raw.AuditLog == "" {
@@ -187,6 +199,9 @@ func build(raw rawConfig, dir string) (*Config, error) {
 	}
 	for name, ra := range raw.Accounts {
 		acct, err := buildAccount(name, ra, dir)
+		if err == nil {
+			err = checkFilesDir(acct.FilesDir, path, cfg.AuditLog)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("accounts.%s: %w", name, err)
 		}
@@ -237,6 +252,16 @@ func buildAccount(name string, ra rawAccount, dir string) (Account, error) {
 		}
 		a.TLSCAFile = p
 	}
+	if ra.FilesDir != "" {
+		p, err := expandHome(ra.FilesDir)
+		if err != nil {
+			return a, fmt.Errorf("files_dir: %w", err)
+		}
+		if !filepath.IsAbs(p) {
+			return a, errors.New("files_dir must be an absolute path or start with ~/")
+		}
+		a.FilesDir = filepath.Clean(p)
+	}
 	switch a.Auth {
 	case AuthPassword:
 		if (len(a.PasswordCmd) == 0) == (a.PasswordEnv == "") {
@@ -282,6 +307,20 @@ func buildAccount(name string, ra rawAccount, dir string) (Account, error) {
 		return a, fmt.Errorf("smtp: %w", err)
 	}
 	return a, nil
+}
+
+// checkFilesDir refuses a files_dir that holds the config or the audit log,
+// since the agent could then read, send or overwrite them through it.
+func checkFilesDir(filesDir string, secrets ...string) error {
+	if filesDir == "" {
+		return nil
+	}
+	for _, s := range secrets {
+		if _, inside := agentfs.Rel(filesDir, s); inside {
+			return fmt.Errorf("files_dir %s contains %s", filesDir, s)
+		}
+	}
+	return nil
 }
 
 // buildSMTP fills the Gmail defaults, and otherwise insists on an explicit host

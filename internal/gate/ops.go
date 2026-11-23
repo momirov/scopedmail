@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/mail"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -400,8 +399,9 @@ type AttachmentResult struct {
 	Bytes int64  `json:"bytes"`
 }
 
-// Attachment streams one part to out. It refuses to overwrite: an agent that
-// controls the path must not be able to clobber existing files.
+// Attachment streams one part to a new file at out, inside files_dir. It
+// refuses to overwrite: an agent that controls the path must not be able to
+// clobber existing files. The result's path is where the file landed.
 func (s *Session) Attachment(mailbox string, uid uint32, part string, out string) (*AttachmentResult, error) {
 	mailbox = policy.Canonical(mailbox)
 	path, perr := parsePartID(part)
@@ -409,7 +409,7 @@ func (s *Session) Attachment(mailbox string, uid uint32, part string, out string
 		return nil, &UsageError{Msg: perr.Error()}
 	}
 	var res *AttachmentResult
-	err := s.run(attempt{action: policy.Attachment, mailbox: mailbox, uids: []uint32{uid}, args: map[string]string{"part": part, "out": out}}, func(c *imapclient.Client) (int, error) {
+	err := s.run(attempt{action: policy.Attachment, mailbox: mailbox, uids: []uint32{uid}, file: out, args: map[string]string{"part": part, "out": out}}, func(c *imapclient.Client) (int, error) {
 		if err := examine(c, mailbox); err != nil {
 			return 0, err
 		}
@@ -431,11 +431,11 @@ func (s *Session) Attachment(mailbox string, uid uint32, part string, out string
 		if target == nil {
 			return 0, fmt.Errorf("message has no part %s", part)
 		}
-		n, err := streamPart(c, set, path, target.bs.Encoding, out)
+		n, where, err := s.streamPart(c, set, path, target.bs.Encoding, out)
 		if err != nil {
 			return 0, err
 		}
-		res = &AttachmentResult{Part: part, Path: out, Bytes: n}
+		res = &AttachmentResult{Part: part, Path: where, Bytes: n}
 		return 1, nil
 	})
 	if err != nil {
@@ -444,17 +444,17 @@ func (s *Session) Attachment(mailbox string, uid uint32, part string, out string
 	return res, nil
 }
 
-func streamPart(c *imapclient.Client, set imap.UIDSet, path []int, encoding, out string) (n int64, err error) {
-	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+func (s *Session) streamPart(c *imapclient.Client, set imap.UIDSet, path []int, encoding, out string) (n int64, where string, err error) {
+	f, where, err := s.files.Create(out)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	defer func() {
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}
 		if err != nil {
-			os.Remove(out)
+			s.files.Remove(out)
 		}
 	}()
 	cmd := c.Fetch(set, &imap.FetchOptions{UID: true, BodySection: []*imap.FetchItemBodySection{peekSection(path)}})
@@ -468,17 +468,17 @@ func streamPart(c *imapclient.Client, set imap.UIDSet, path []int, encoding, out
 			}
 			got = true
 			if n, err = io.Copy(f, decodeBody(sec.Literal, encoding)); err != nil {
-				return n, err
+				return n, where, err
 			}
 		}
 	}
 	if err := cmd.Close(); err != nil {
-		return n, err
+		return n, where, err
 	}
 	if !got {
-		return 0, errors.New("server returned no data for the part")
+		return 0, where, errors.New("server returned no data for the part")
 	}
-	return n, nil
+	return n, where, nil
 }
 
 var systemFlags = map[string]imap.Flag{

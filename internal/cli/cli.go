@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/momirov/scopedmail/internal/agentfs"
 	"github.com/momirov/scopedmail/internal/audit"
 	"github.com/momirov/scopedmail/internal/config"
 	"github.com/momirov/scopedmail/internal/gate"
@@ -254,7 +255,7 @@ func (inv *invocation) withSession(f func(*gate.Session) error) error {
 		return &codedError{"audit", err}
 	}
 	defer log.Close()
-	sess := gate.New(acct.Name, acct.Policy, log, gate.Dialer(acct), gate.SMTPOutbound(acct))
+	sess := gate.New(acct.Name, acct.Policy, log, gate.Dialer(acct), gate.SMTPOutbound(acct), agentfs.New(acct.FilesDir))
 	defer sess.Close()
 	return f(sess)
 }

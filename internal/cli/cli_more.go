@@ -1,10 +1,9 @@
 package cli
 
 import (
-	"os"
-
 	"github.com/momirov/scopedmail/internal/audit"
 	"github.com/momirov/scopedmail/internal/gate"
+	"github.com/momirov/scopedmail/internal/policy"
 )
 
 func runAppend(inv *invocation, args []string) error {
@@ -26,19 +25,12 @@ func runAppend(inv *invocation, args []string) error {
 	if file == "" {
 		return usagef("--file is required")
 	}
-	f, err := os.Open(file)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return usagef("%s is not a regular file", file)
-	}
 	return inv.withSession(func(s *gate.Session) error {
+		f, info, err := openAgentFile(s, policy.Append, file)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
 		uid, err := s.Append(mailbox, f, info.Size(), splitCSV(flags), file)
 		if err != nil {
 			return err
@@ -69,6 +61,14 @@ func runCreateMailbox(inv *invocation, args []string) error {
 	})
 }
 
+// policyOutput is what the agent learns about its limits. files_dir is null
+// when file paths are off.
+type policyOutput struct {
+	Account  string             `json:"account"`
+	Policy   policy.Description `json:"policy"`
+	FilesDir *string            `json:"files_dir"`
+}
+
 // runPolicy never connects and appends nothing to the audit log.
 func runPolicy(inv *invocation, args []string) error {
 	pos, err := parse(newFlagSet("policy"), args)
@@ -86,7 +86,11 @@ func runPolicy(inv *invocation, args []string) error {
 	if err != nil {
 		return &codedError{"config", err}
 	}
-	writeJSON(inv.env.Stdout, map[string]any{"account": acct.Name, "policy": acct.Policy.Describe()})
+	var filesDir *string
+	if acct.FilesDir != "" {
+		filesDir = &acct.FilesDir
+	}
+	writeJSON(inv.env.Stdout, policyOutput{Account: acct.Name, Policy: acct.Policy.Describe(), FilesDir: filesDir})
 	return nil
 }
 

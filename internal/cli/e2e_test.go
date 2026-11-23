@@ -46,7 +46,9 @@ type fixture struct {
 	dir    string
 	config string
 	audit  string
-	smtp   *testserver.SMTPServer
+	// files is the account's files_dir.
+	files string
+	smtp  *testserver.SMTPServer
 }
 
 const readOnlyPolicy = `allow = ["Agent", "Agent/*", "INBOX"]`
@@ -63,6 +65,10 @@ func newFixture(t *testing.T, policyBody string) *fixture {
 	t.Cleanup(func() { srv.Close() })
 	f := &fixture{t: t, srv: srv, dir: t.TempDir()}
 	f.audit = filepath.Join(f.dir, "audit.jsonl")
+	f.files = filepath.Join(f.dir, "files")
+	if err := os.Mkdir(f.files, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(f.dir, "ca.pem"), srv.CAPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +86,12 @@ host = %q
 port = %d
 username = %q
 auth = "password"
+files_dir = %q
 %s
 
 [accounts.work.policy]
 %s
-`, f.audit, f.srv.Host, f.srv.Port, testserver.Username, extra, policyBody)
+`, f.audit, f.srv.Host, f.srv.Port, testserver.Username, f.files, extra, policyBody)
 }
 
 func (f *fixture) writeConfig(body string) {
@@ -378,7 +385,7 @@ func TestWriteActionsWhenEnabled(t *testing.T) {
 	if f.count("Agent") != 0 || f.count("Agent/Sub") != 3 || f.count("[Gmail]/Trash") != 1 {
 		t.Errorf("counts: Agent=%d Sub=%d Trash=%d", f.count("Agent"), f.count("Agent/Sub"), f.count("[Gmail]/Trash"))
 	}
-	eml := filepath.Join(f.dir, "draft.eml")
+	eml := filepath.Join(f.files, "draft.eml")
 	os.WriteFile(eml, []byte("From: a@example.test\r\nSubject: draft\r\n\r\nhi\r\n"), 0o600)
 	if r := f.run("create-mailbox", "Agent/Drafts"); r.exit != 0 {
 		t.Fatalf("create-mailbox: %d %s", r.exit, r.stderr)
@@ -410,7 +417,7 @@ func TestAttachmentDownload(t *testing.T) {
 	if len(msg.Attachments) != 1 || msg.Attachments[0].Part != "2" || msg.Attachments[0].Filename != "report.txt" {
 		t.Fatalf("attachments = %+v", msg.Attachments)
 	}
-	out := filepath.Join(f.dir, "got.txt")
+	out := filepath.Join(f.files, "got.txt")
 	if r := f.run("attachment", "-m", "Agent", "2", "--part", "2", "--out", out); r.exit != 0 {
 		t.Fatalf("attachment: %d %s", r.exit, r.stderr)
 	}
@@ -420,10 +427,10 @@ func TestAttachmentDownload(t *testing.T) {
 	if r := f.run("attachment", "-m", "Agent", "2", "--part", "2", "--out", out); r.exit != 1 {
 		t.Errorf("overwrite: exit %d, want 1", r.exit)
 	}
-	if r := f.run("attachment", "-m", "Private", "1", "--part", "1", "--out", filepath.Join(f.dir, "p")); r.exit != 3 {
+	if r := f.run("attachment", "-m", "Private", "1", "--part", "1", "--out", filepath.Join(f.files, "p")); r.exit != 3 {
 		t.Errorf("attachment from Private: exit %d", r.exit)
 	}
-	if _, err := os.Stat(filepath.Join(f.dir, "p")); err == nil {
+	if _, err := os.Stat(filepath.Join(f.files, "p")); err == nil {
 		t.Error("denied attachment wrote a file")
 	}
 }
@@ -688,7 +695,7 @@ const replyEML = "Message-ID: <reply-1@example.test>\r\n" +
 
 func (f *fixture) appendMessage(mailbox, eml string) uint32 {
 	f.t.Helper()
-	path := filepath.Join(f.dir, "msg.eml")
+	path := filepath.Join(f.files, "msg.eml")
 	if err := os.WriteFile(path, []byte(eml), 0o600); err != nil {
 		f.t.Fatal(err)
 	}

@@ -44,6 +44,10 @@ send_to = ["@example.com", "carol@other.org"]`, "TOML body of the [accounts.demo
 	if err := os.WriteFile(filepath.Join(*dir, "ca.pem"), append(append([]byte(nil), srv.CAPEM...), sink.CAPEM...), 0o600); err != nil {
 		log.Fatal(err)
 	}
+	filesDir := filepath.Join(*dir, "files")
+	if err := os.MkdirAll(filesDir, 0o700); err != nil {
+		log.Fatal(err)
+	}
 	cfg := fmt.Sprintf(`default_account = "demo"
 audit_log = %q
 
@@ -54,6 +58,7 @@ username = %q
 auth = "password"
 password_env = "SCOPEDMAIL_PASSWORD"
 tls_ca_file = "ca.pem"
+files_dir = %q
 
 [accounts.demo.policy]
 %s
@@ -61,7 +66,7 @@ tls_ca_file = "ca.pem"
 [accounts.demo.smtp]
 host = %q
 port = %d
-`, filepath.Join(*dir, "audit.jsonl"), srv.Host, srv.Port, testserver.Username, *policyBody, sink.Host, sink.Port)
+`, filepath.Join(*dir, "audit.jsonl"), srv.Host, srv.Port, testserver.Username, filesDir, *policyBody, sink.Host, sink.Port)
 	if err := os.WriteFile(filepath.Join(*dir, "config.toml"), []byte(cfg), 0o600); err != nil {
 		log.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
+	"github.com/momirov/scopedmail/internal/agentfs"
 	"github.com/momirov/scopedmail/internal/audit"
 	"github.com/momirov/scopedmail/internal/config"
 	"github.com/momirov/scopedmail/internal/gate"
@@ -22,6 +23,8 @@ type env struct {
 	srv  *testserver.Server
 	sess *gate.Session
 	log  string
+	// files is the directory agent paths resolve inside.
+	files string
 }
 
 func setup(t *testing.T, spec policy.Spec, opts testserver.Options) *env {
@@ -50,9 +53,13 @@ func setup(t *testing.T, spec policy.Spec, opts testserver.Options) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess := gate.New("test", pol, log, gate.Dialer(acct), gate.Outbound{})
+	files := filepath.Join(dir, "files")
+	if err := os.Mkdir(files, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sess := gate.New("test", pol, log, gate.Dialer(acct), gate.Outbound{}, agentfs.New(files))
 	t.Cleanup(func() { sess.Close(); log.Close() })
-	return &env{srv: srv, sess: sess, log: logPath}
+	return &env{srv: srv, sess: sess, log: logPath, files: files}
 }
 
 func (e *env) records(t *testing.T) []audit.Record {
@@ -180,10 +187,13 @@ func TestReadMultipartDecodesAndListsAttachments(t *testing.T) {
 
 func TestAttachmentWritesDecodedBytesAndRefusesOverwrite(t *testing.T) {
 	e := setup(t, policy.Spec{Allow: []string{"Agent"}}, testserver.Options{})
-	out := filepath.Join(t.TempDir(), "report.txt")
-	res, err := e.sess.Attachment("Agent", 2, "2", out)
+	out := filepath.Join(e.files, "report.txt")
+	res, err := e.sess.Attachment("Agent", 2, "2", "report.txt")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if res.Path != out {
+		t.Errorf("path = %q, want %q", res.Path, out)
 	}
 	got, _ := os.ReadFile(out)
 	if string(got) != testserver.AttachmentBytes || res.Bytes != int64(len(got)) {
@@ -192,10 +202,10 @@ func TestAttachmentWritesDecodedBytesAndRefusesOverwrite(t *testing.T) {
 	if info, _ := os.Stat(out); info.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v", info.Mode().Perm())
 	}
-	if _, err := e.sess.Attachment("Agent", 2, "2", out); err == nil {
+	if _, err := e.sess.Attachment("Agent", 2, "2", "report.txt"); err == nil {
 		t.Error("second write over an existing file succeeded")
 	}
-	if _, err := e.sess.Attachment("Agent", 2, "9", filepath.Join(t.TempDir(), "x")); err == nil {
+	if _, err := e.sess.Attachment("Agent", 2, "9", "x"); err == nil {
 		t.Error("nonexistent part succeeded")
 	}
 }
@@ -405,7 +415,7 @@ func TestFailedAuditAppendWithholdsResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	log.Close() // appends to a closed log fail
-	sess := gate.New("test", mustPolicy(t, policy.Spec{Allow: []string{"Agent"}}), log, func() (*imapclient.Client, error) { return nil, errors.New("must not connect") }, gate.Outbound{})
+	sess := gate.New("test", mustPolicy(t, policy.Spec{Allow: []string{"Agent"}}), log, func() (*imapclient.Client, error) { return nil, errors.New("must not connect") }, gate.Outbound{}, nil)
 	_, err = sess.Search("Agent", gate.SearchQuery{Limit: 1})
 	var ae *gate.AuditError
 	if !errors.As(err, &ae) {
@@ -438,7 +448,7 @@ func TestUntrustedServerCertificateFailsClosed(t *testing.T) {
 	log, _ := audit.Open(filepath.Join(t.TempDir(), "a.jsonl"))
 	defer log.Close()
 	acct := config.Account{Host: e.srv.Host, Port: e.srv.Port, Username: testserver.Username, Auth: config.AuthPassword, PasswordEnv: "GATE_TEST_PW", Policy: pol}
-	sess := gate.New("x", pol, log, gate.Dialer(acct), gate.Outbound{})
+	sess := gate.New("x", pol, log, gate.Dialer(acct), gate.Outbound{}, nil)
 	if _, err := sess.Mailboxes(); err == nil {
 		t.Fatal("connected to a server whose certificate is not trusted")
 	}

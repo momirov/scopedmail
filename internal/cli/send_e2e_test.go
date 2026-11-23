@@ -88,8 +88,7 @@ func (f *fixture) auditRaw() string {
 
 func TestSendDeliversAndAuditsWithoutText(t *testing.T) {
 	f := newSendFixture(t, sendPolicy, "")
-	dir := t.TempDir()
-	htmlPath, attPath := filepath.Join(dir, "m.html"), filepath.Join(dir, "report.csv")
+	htmlPath, attPath := filepath.Join(f.files, "m.html"), filepath.Join(f.files, "report.csv")
 	os.WriteFile(htmlPath, []byte("<p>HTML-BODY-MARKER</p>"), 0o600)
 	os.WriteFile(attPath, []byte("a,b\n1,2\n"), 0o600)
 
@@ -159,7 +158,7 @@ func TestSendDeliversAndAuditsWithoutText(t *testing.T) {
 
 func TestSendBodyFromFileAndFlag(t *testing.T) {
 	f := newSendFixture(t, sendPolicy, "")
-	path := filepath.Join(t.TempDir(), "body.txt")
+	path := filepath.Join(f.files, "body.txt")
 	os.WriteFile(path, []byte("from a file"), 0o600)
 	for _, args := range [][]string{
 		{"send", "--to", "a@example.com", "--subject", "s", "--body-file", path},
