@@ -197,7 +197,7 @@ func TestTrashIsNotSubjectToTheAllowlist(t *testing.T) {
 }
 
 func TestEveryActionHasASpecAndDefaultsAreConsistent(t *testing.T) {
-	want := []Action{Mailboxes, Search, Read, Attachment, Flag, Copy, Move, Delete, Append, CreateMailbox}
+	want := []Action{Mailboxes, Search, Read, Attachment, Flag, Copy, Move, Delete, Append, CreateMailbox, Send}
 	if len(Actions) != len(want) {
 		t.Fatalf("registry has %d actions, want %d", len(Actions), len(want))
 	}
@@ -210,5 +210,146 @@ func TestEveryActionHasASpecAndDefaultsAreConsistent(t *testing.T) {
 		if !Actions[a].Target {
 			t.Errorf("%s must take a target", a)
 		}
+	}
+}
+
+func sendPolicy(t *testing.T, sendTo ...string) Policy {
+	t.Helper()
+	return mustPolicy(t, Spec{Allow: []string{"Agent"}, Actions: []string{"send", "read"}, SendTo: sendTo})
+}
+
+func TestCheckSendMatching(t *testing.T) {
+	tests := []struct {
+		name     string
+		sendTo   []string
+		rcpts    []string
+		want     bool
+		rejected string
+	}{
+		{"exact address", []string{"alice@example.com"}, []string{"alice@example.com"}, true, ""},
+		{"exact address ignores case", []string{"Alice@Example.COM"}, []string{"aLICE@example.com"}, true, ""},
+		{"exact address does not cover siblings", []string{"alice@example.com"}, []string{"bob@example.com"}, false, "bob@example.com"},
+		{"domain rule covers any local part", []string{"@example.com"}, []string{"anyone@example.com", "x.y+z@example.com"}, true, ""},
+		{"domain rule ignores case", []string{"@Example.COM"}, []string{"a@EXAMPLE.com"}, true, ""},
+		{"domain rule excludes subdomains", []string{"@example.com"}, []string{"a@mail.example.com"}, false, "a@mail.example.com"},
+		{"domain rule excludes parent domain", []string{"@mail.example.com"}, []string{"a@example.com"}, false, "a@example.com"},
+		{"domain rule is not a suffix match", []string{"@example.com"}, []string{"a@evilexample.com"}, false, "a@evilexample.com"},
+		{"address containing the domain string is not a match", []string{"@example.com"}, []string{"example.com@evil.com"}, false, "example.com@evil.com"},
+		{"local part spelled like the domain does not match", []string{"@example.com"}, []string{"a@example.com.evil.com"}, false, "a@example.com.evil.com"},
+		{"quoted local part cannot smuggle a domain", []string{"@example.com"}, []string{`"a@example.com"@evil.com`}, false, "evil.com"},
+		{"second at sign rejected", []string{"@example.com"}, []string{"a@evil.com@example.com"}, false, "a@evil.com@example.com"},
+		{"display form rejected", []string{"@example.com"}, []string{"Alice <a@example.com>"}, false, "Alice <a@example.com>"},
+		{"header injection rejected", []string{"@example.com"}, []string{"a@example.com\r\nBcc: x@evil.com"}, false, "a@example.com"},
+		{"non-ascii domain rejected", []string{"@example.com"}, []string{"a@exampl\u0435.com"}, false, ""},
+		{"first rejected address is named", []string{"@example.com"}, []string{"ok@example.com", "bad@evil.com", "worse@evil.org"}, false, "bad@evil.com"},
+		{"one bad bcc blocks the whole send", []string{"ok@example.com"}, []string{"ok@example.com", "secret@evil.com"}, false, "secret@evil.com"},
+		{"either rule suffices", []string{"alice@other.org", "@example.com"}, []string{"alice@other.org", "b@example.com"}, true, ""},
+		{"no recipients", []string{"@example.com"}, nil, false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := sendPolicy(t, tt.sendTo...).CheckSend(tt.rcpts)
+			if d.Allowed != tt.want {
+				t.Fatalf("CheckSend(%q) = %+v, want allowed=%v", tt.rcpts, d, tt.want)
+			}
+			if tt.rejected != "" && !strings.Contains(d.Reason, tt.rejected) {
+				t.Errorf("reason %q does not name %q", d.Reason, tt.rejected)
+			}
+		})
+	}
+}
+
+func TestCheckSendDoesNotNameLaterAddresses(t *testing.T) {
+	d := sendPolicy(t, "@example.com").CheckSend([]string{"bad@evil.com", "worse@evil.org"})
+	if strings.Contains(d.Reason, "worse@evil.org") {
+		t.Errorf("reason %q names a later rejected address", d.Reason)
+	}
+}
+
+func TestCheckSendMaxRecipients(t *testing.T) {
+	p := mustPolicy(t, Spec{Actions: []string{"send"}, SendTo: []string{"@example.com"}, MaxRecipients: 2})
+	if d := p.CheckSend([]string{"a@example.com", "b@example.com"}); !d.Allowed {
+		t.Errorf("two recipients under max 2: %+v", d)
+	}
+	if d := p.CheckSend([]string{"a@example.com", "A@EXAMPLE.com"}); !d.Allowed {
+		t.Errorf("duplicates count once: %+v", d)
+	}
+	if d := p.CheckSend([]string{"a@example.com", "b@example.com", "c@example.com"}); d.Allowed || !strings.Contains(d.Reason, "max_recipients") {
+		t.Errorf("three recipients over max 2: %+v", d)
+	}
+	def := mustPolicy(t, Spec{Actions: []string{"send"}, SendTo: []string{"@example.com"}})
+	var eleven []string
+	for i := range 11 {
+		eleven = append(eleven, string(rune('a'+i))+"@example.com")
+	}
+	if d := def.CheckSend(eleven[:10]); !d.Allowed {
+		t.Errorf("default allows 10: %+v", d)
+	}
+	if d := def.CheckSend(eleven); d.Allowed {
+		t.Error("default must reject 11")
+	}
+}
+
+func TestSendIsOffByDefaultAndNeedsSendTo(t *testing.T) {
+	if _, ok := map[Action]bool{}[Send]; ok || mustPolicy(t, Spec{Allow: []string{"Agent"}}).ActionEnabled(Send) {
+		t.Error("send must not be in the default action set")
+	}
+	for _, a := range DefaultActions() {
+		if a == Send {
+			t.Error("DefaultActions contains send")
+		}
+	}
+	if d := mustPolicy(t, Spec{Allow: []string{"Agent"}}).CheckSend([]string{"a@example.com"}); d.Allowed || !strings.Contains(d.Reason, "not enabled") {
+		t.Errorf("send under default policy = %+v", d)
+	}
+	if _, err := New(Spec{Actions: []string{"send"}}); err == nil || !strings.Contains(err.Error(), "send_to is empty") {
+		t.Errorf("send without send_to: err = %v", err)
+	}
+}
+
+func TestSendToCheckedByCheckNeverAllows(t *testing.T) {
+	p := sendPolicy(t, "@example.com")
+	if d := p.Check(Send, "Agent", ""); d.Allowed {
+		t.Errorf("Check(send) must defer to CheckSend: %+v", d)
+	}
+}
+
+func TestNewRejectsBadSendSpecs(t *testing.T) {
+	bad := []Spec{
+		{SendTo: []string{"*"}},
+		{SendTo: []string{"example.com"}},
+		{SendTo: []string{"@"}},
+		{SendTo: []string{"@com"}},
+		{SendTo: []string{"@*.example.com"}},
+		{SendTo: []string{"@.example.com"}},
+		{SendTo: []string{"@example..com"}},
+		{SendTo: []string{"@-example.com"}},
+		{SendTo: []string{"@1.2.3.4"}},
+		{SendTo: []string{"*@example.com"}},
+		{SendTo: []string{"a%b@example.com"}},
+		{SendTo: []string{"@example.com@evil.com"}},
+		{SendTo: []string{"a@b@example.com"}},
+		{SendTo: []string{"Alice <a@example.com>"}},
+		{SendTo: []string{"a b@example.com"}},
+		{SendTo: []string{"@example.com\n"}},
+		{SendTo: []string{""}},
+		{SendTo: []string{"@example.com"}, MaxRecipients: -1},
+		{SendTo: []string{"@example.com"}, MaxRecipients: 101},
+	}
+	for _, s := range bad {
+		if _, err := New(s); err == nil {
+			t.Errorf("New(%q) succeeded, want error", s.SendTo)
+		}
+	}
+}
+
+func TestDescribeShowsSendRulesOnlyWhenEnabled(t *testing.T) {
+	d := mustPolicy(t, Spec{Allow: []string{"Agent"}, Actions: []string{"send"}, SendTo: []string{"Bob@Example.com", "@example.org"}, MaxRecipients: 3}).Describe()
+	if got := strings.Join(d.SendTo, ","); got != "bob@example.com,@example.org" || d.MaxRecipients != 3 {
+		t.Errorf("Describe = %+v", d)
+	}
+	off := mustPolicy(t, Spec{Allow: []string{"Agent"}, SendTo: []string{"@example.org"}}).Describe()
+	if len(off.SendTo) != 0 || off.MaxRecipients != 0 {
+		t.Errorf("send rules shown while send is disabled: %+v", off)
 	}
 }

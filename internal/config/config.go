@@ -40,8 +40,25 @@ type Account struct {
 	PasswordEnv    string
 	OAuth2TokenCmd []string
 
+	// SMTP is where send delivers. It is the zero value unless send is
+	// enabled or an [smtp] table is present.
+	SMTP SMTP
+
 	Policy policy.Policy
 }
+
+// SMTP is the submission server. It shares the account's credentials and
+// tls_ca_file, and TLS is always on: implicit by default, STARTTLS when set.
+type SMTP struct {
+	Host     string
+	Port     int
+	StartTLS bool
+}
+
+const (
+	gmailIMAPHost = "imap.gmail.com"
+	gmailSMTPHost = "smtp.gmail.com"
+)
 
 type Config struct {
 	DefaultAccount string
@@ -66,13 +83,22 @@ type rawAccount struct {
 	PasswordEnv    string    `toml:"password_env"`
 	OAuth2TokenCmd []string  `toml:"oauth2_token_cmd"`
 	Policy         rawPolicy `toml:"policy"`
+	SMTP           rawSMTP   `toml:"smtp"`
+}
+
+type rawSMTP struct {
+	Host     string `toml:"host"`
+	Port     int    `toml:"port"`
+	StartTLS bool   `toml:"starttls"`
 }
 
 type rawPolicy struct {
-	Allow   []string `toml:"allow"`
-	Deny    []string `toml:"deny"`
-	Actions []string `toml:"actions"`
-	Trash   string   `toml:"trash"`
+	Allow         []string `toml:"allow"`
+	Deny          []string `toml:"deny"`
+	Actions       []string `toml:"actions"`
+	Trash         string   `toml:"trash"`
+	SendTo        []string `toml:"send_to"`
+	MaxRecipients int      `toml:"max_recipients"`
 }
 
 // DefaultPath resolves the config location: flag, then $SCOPEDMAIL_CONFIG, then
@@ -238,12 +264,43 @@ func buildAccount(name string, ra rawAccount, dir string) (Account, error) {
 		Deny:    ra.Policy.Deny,
 		Actions: ra.Policy.Actions,
 		Trash:   ra.Policy.Trash,
+
+		SendTo:        ra.Policy.SendTo,
+		MaxRecipients: ra.Policy.MaxRecipients,
 	})
 	if err != nil {
 		return a, fmt.Errorf("policy: %w", err)
 	}
 	a.Policy = pol
+	if a.SMTP, err = buildSMTP(a.Host, ra.SMTP, pol.ActionEnabled(policy.Send)); err != nil {
+		return a, fmt.Errorf("smtp: %w", err)
+	}
 	return a, nil
+}
+
+// buildSMTP fills the Gmail defaults, and otherwise insists on an explicit host
+// once send is enabled, so mail never goes to a server nobody named.
+func buildSMTP(imapHost string, rs rawSMTP, sendEnabled bool) (SMTP, error) {
+	if rs == (rawSMTP{}) && !sendEnabled {
+		return SMTP{}, nil
+	}
+	s := SMTP{Host: rs.Host, Port: rs.Port, StartTLS: rs.StartTLS}
+	if s.Host == "" && strings.EqualFold(imapHost, gmailIMAPHost) {
+		s.Host = gmailSMTPHost
+	}
+	if s.Host == "" || strings.ContainsAny(s.Host, " \t/") {
+		return SMTP{}, errors.New("host is required and must be a bare hostname")
+	}
+	if s.Port == 0 {
+		s.Port = 465
+		if s.StartTLS {
+			s.Port = 587
+		}
+	}
+	if s.Port < 1 || s.Port > 65535 {
+		return SMTP{}, fmt.Errorf("port %d out of range", s.Port)
+	}
+	return s, nil
 }
 
 // Account picks the named account, else default_account, else the only one.

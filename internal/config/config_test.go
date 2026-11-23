@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/momirov/scopedmail/internal/policy"
 )
 
 const goodConfig = `
@@ -228,5 +230,119 @@ func TestHomeExpansionInAuditLog(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	if want := filepath.Join(home, ".local/state/scopedmail/audit.jsonl"); cfg.AuditLog != want {
 		t.Errorf("audit_log = %q, want %q", cfg.AuditLog, want)
+	}
+}
+
+const sendPolicyBody = `allow = ["Agent"]
+actions = ["read", "send"]
+send_to = ["alice@example.com", "@example.org"]
+`
+
+func withPolicy(body string) string {
+	return strings.Replace(goodConfig, "allow = [\"Agent\", \"Receipts/*\"]\ndeny = [\"Receipts/Tax\"]\nactions = [\"mailboxes\", \"search\", \"read\", \"flag\"]", body, 1)
+}
+
+func TestSendDefaultsForGmail(t *testing.T) {
+	cfg, err := Load(writeConfig(t, withPolicy(sendPolicyBody), 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := cfg.Account("")
+	if a.SMTP != (SMTP{Host: "smtp.gmail.com", Port: 465}) {
+		t.Errorf("SMTP = %+v, want smtp.gmail.com:465 implicit TLS", a.SMTP)
+	}
+	if d := a.Policy.CheckSend([]string{"ALICE@example.com", "x@example.org"}); !d.Allowed {
+		t.Errorf("send_to was not parsed into the policy: %+v", d)
+	}
+	if d := a.Policy.CheckSend([]string{"x@example.com"}); d.Allowed {
+		t.Error("x@example.com must not match alice@example.com")
+	}
+}
+
+func TestSendDisabledByDefaultAndLeavesSMTPUnset(t *testing.T) {
+	cfg, err := Load(writeConfig(t, goodConfig, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := cfg.Account("")
+	if a.Policy.ActionEnabled(policy.Send) || a.SMTP != (SMTP{}) {
+		t.Errorf("send=%v smtp=%+v, want off and zero", a.Policy.ActionEnabled(policy.Send), a.SMTP)
+	}
+	noActions := withPolicy(`allow = ["Agent"]`)
+	cfg, err = Load(writeConfig(t, noActions, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := cfg.Account(""); a.Policy.ActionEnabled(policy.Send) {
+		t.Error("send is in the default action set")
+	}
+}
+
+func TestSendWithEmptySendToFailsLoad(t *testing.T) {
+	for name, body := range map[string]string{
+		"absent": "allow = [\"Agent\"]\nactions = [\"send\"]\n",
+		"empty":  "allow = [\"Agent\"]\nactions = [\"send\"]\nsend_to = []\n",
+	} {
+		_, err := Load(writeConfig(t, withPolicy(body), 0o600))
+		if err == nil || !strings.Contains(err.Error(), "send_to is empty") {
+			t.Errorf("%s: err = %v, want send_to is empty", name, err)
+		}
+	}
+}
+
+func TestMalformedSendToFailsLoad(t *testing.T) {
+	for _, bad := range []string{`"example.com"`, `"@com"`, `"*@example.com"`, `"Alice <a@example.com>"`} {
+		body := withPolicy("allow = [\"Agent\"]\nactions = [\"send\"]\nsend_to = [" + bad + "]\n")
+		if _, err := Load(writeConfig(t, body, 0o600)); err == nil || !strings.Contains(err.Error(), "send_to") {
+			t.Errorf("%s: err = %v, want send_to error", bad, err)
+		}
+	}
+}
+
+func TestSMTPRequiredOutsideGmail(t *testing.T) {
+	other := strings.Replace(withPolicy(sendPolicyBody), "imap.gmail.com", "imap.example.org", 1)
+	if _, err := Load(writeConfig(t, other, 0o600)); err == nil || !strings.Contains(err.Error(), "smtp") {
+		t.Errorf("err = %v, want an smtp requirement", err)
+	}
+	with := other + "\n[accounts.work.smtp]\nhost = \"smtp.example.org\"\nstarttls = true\n"
+	cfg, err := Load(writeConfig(t, with, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := cfg.Account(""); a.SMTP != (SMTP{Host: "smtp.example.org", Port: 587, StartTLS: true}) {
+		t.Errorf("SMTP = %+v", a.SMTP)
+	}
+}
+
+func TestSMTPTableValidation(t *testing.T) {
+	base := withPolicy(sendPolicyBody)
+	for name, tbl := range map[string]string{
+		"bad port":     "host = \"smtp.example.org\"\nport = 70000",
+		"bad host":     "host = \"smtp example.org\"",
+		"unknown key":  "host = \"smtp.example.org\"\ninsecure = true",
+		"port no host": "port = 25\nbogus = 1",
+	} {
+		if _, err := Load(writeConfig(t, base+"\n[accounts.work.smtp]\n"+tbl+"\n", 0o600)); err == nil {
+			t.Errorf("%s: Load succeeded", name)
+		}
+	}
+	cfg, err := Load(writeConfig(t, base+"\n[accounts.work.smtp]\nport = 2465\n", 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := cfg.Account(""); a.SMTP != (SMTP{Host: "smtp.gmail.com", Port: 2465}) {
+		t.Errorf("SMTP = %+v", a.SMTP)
+	}
+}
+
+func TestMaxRecipientsFromConfig(t *testing.T) {
+	body := withPolicy(sendPolicyBody + "max_recipients = 1\n")
+	cfg, err := Load(writeConfig(t, body, 0o600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := cfg.Account("")
+	if d := a.Policy.CheckSend([]string{"alice@example.com", "x@example.org"}); d.Allowed {
+		t.Errorf("two recipients under max_recipients=1: %+v", d)
 	}
 }

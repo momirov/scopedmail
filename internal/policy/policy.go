@@ -12,13 +12,25 @@ type Spec struct {
 	Deny    []string
 	Actions []string
 	Trash   string
+	// SendTo lists the addresses and "@domain" rules that send may reach.
+	SendTo []string
+	// MaxRecipients caps distinct To, Cc and Bcc addresses per send. Zero
+	// means DefaultMaxRecipients.
+	MaxRecipients int
 }
 
+const (
+	DefaultMaxRecipients = 10
+	maxMaxRecipients     = 100
+)
+
 type Policy struct {
-	allow   []Pattern
-	deny    []Pattern
-	actions map[Action]bool
-	trash   string
+	allow         []Pattern
+	deny          []Pattern
+	actions       map[Action]bool
+	trash         string
+	sendTo        []RecipientPattern
+	maxRecipients int
 }
 
 type Decision struct {
@@ -70,6 +82,24 @@ func New(s Spec) (Policy, error) {
 			return Policy{}, fmt.Errorf("actions: unknown action %q", raw)
 		}
 		p.actions[a] = true
+	}
+	for _, raw := range s.SendTo {
+		pat, err := NewRecipientPattern(raw)
+		if err != nil {
+			return Policy{}, fmt.Errorf("send_to: %w", err)
+		}
+		p.sendTo = append(p.sendTo, pat)
+	}
+	if p.actions[Send] && len(p.sendTo) == 0 {
+		return Policy{}, fmt.Errorf(`action "send" is enabled but send_to is empty; list the addresses or "@domain" rules it may reach`)
+	}
+	switch m := s.MaxRecipients; {
+	case m == 0:
+		p.maxRecipients = DefaultMaxRecipients
+	case m < 0 || m > maxMaxRecipients:
+		return Policy{}, fmt.Errorf("max_recipients must be between 1 and %d", maxMaxRecipients)
+	default:
+		p.maxRecipients = m
 	}
 	if s.Trash != "" {
 		if err := validateName(s.Trash); err != nil {
@@ -131,6 +161,9 @@ func (p Policy) Check(a Action, mailbox string, target string) Decision {
 	if a == Mailboxes {
 		return Decision{Allowed: true}
 	}
+	if spec.Recipients {
+		return Decision{Reason: fmt.Sprintf("action %q is checked against recipients, not a mailbox", a)}
+	}
 	if d := p.mailboxDecision(mailbox); !d.Allowed {
 		return d
 	}
@@ -146,12 +179,51 @@ func (p Policy) Check(a Action, mailbox string, target string) Decision {
 	return Decision{Allowed: true}
 }
 
+// CheckSend decides whether a message to recipients may leave. Every address
+// must match send_to or nothing is sent. It names the first rejected address
+// and makes no network calls.
+func (p Policy) CheckSend(recipients []string) Decision {
+	if !p.actions[Send] {
+		return Decision{Reason: fmt.Sprintf("action %q is not enabled", Send)}
+	}
+	if len(recipients) == 0 {
+		return Decision{Reason: "no recipients"}
+	}
+	distinct := map[string]bool{}
+	for _, raw := range recipients {
+		addr, err := normalizeAddress(raw)
+		if err != nil {
+			return Decision{Reason: fmt.Sprintf("recipient %q is not a plain address: %v", raw, err)}
+		}
+		if !p.recipientAllowed(addr) {
+			return Decision{Reason: fmt.Sprintf("recipient %q is not in send_to", raw)}
+		}
+		distinct[addr] = true
+	}
+	if len(distinct) > p.maxRecipients {
+		return Decision{Reason: fmt.Sprintf("%d recipients exceeds max_recipients %d", len(distinct), p.maxRecipients)}
+	}
+	return Decision{Allowed: true}
+}
+
+func (p Policy) recipientAllowed(addr string) bool {
+	for _, r := range p.sendTo {
+		if r.matches(addr) {
+			return true
+		}
+	}
+	return false
+}
+
 // Description is the effective policy as shown to the agent.
 type Description struct {
 	Allow   []string `json:"allow"`
 	Deny    []string `json:"deny"`
 	Actions []string `json:"actions"`
 	Trash   string   `json:"trash,omitempty"`
+	// SendTo and MaxRecipients appear only when send is enabled.
+	SendTo        []string `json:"send_to,omitempty"`
+	MaxRecipients int      `json:"max_recipients,omitempty"`
 }
 
 func (p Policy) Describe() Description {
@@ -168,5 +240,11 @@ func (p Policy) Describe() Description {
 		}
 	}
 	sort.Strings(d.Actions)
+	if p.actions[Send] {
+		d.MaxRecipients = p.maxRecipients
+		for _, r := range p.sendTo {
+			d.SendTo = append(d.SendTo, r.String())
+		}
+	}
 	return d
 }

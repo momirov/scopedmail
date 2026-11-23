@@ -15,6 +15,7 @@ const (
 	Delete        Action = "delete"
 	Append        Action = "append"
 	CreateMailbox Action = "create-mailbox"
+	Send          Action = "send"
 )
 
 type ActionSpec struct {
@@ -23,6 +24,9 @@ type ActionSpec struct {
 	// Target is true when the action takes a destination mailbox that must
 	// also pass the allowlist.
 	Target bool
+	// Recipients is true when the action addresses outside people, so the
+	// recipient allowlist applies instead of a mailbox.
+	Recipients bool
 }
 
 // Actions is the single source of truth for what scopedmail can do. Every CLI
@@ -38,6 +42,7 @@ var Actions = map[Action]ActionSpec{
 	Delete:        {Write: true},
 	Append:        {Write: true},
 	CreateMailbox: {Write: true},
+	Send:          {Write: true, Recipients: true},
 }
 
 func ParseAction(s string) (Action, bool) {
