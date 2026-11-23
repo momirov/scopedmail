@@ -76,6 +76,8 @@ In this setup, the agent can run scopedmail but cannot read its config, its cred
    sudo usermod -aG agent scopedmail
    ```
 
+   If you can, put this directory on a different file system from `/home/scopedmail`. Then the agent cannot hard link a service-user file into it. scopedmail also refuses a file with more than one link. On Linux, check that `sysctl fs.protected_hardlinks` prints `1`.
+
    scopedmail creates files it writes with mode 0600, so the agent cannot read them. The agent can still attach such a file to a message with `send --attach`. To read an attachment's content, the agent can use the text that `read` returns. Do not leave the password file, the config, or the audit log in `files_dir`. scopedmail refuses a config whose `files_dir` holds the config file or the audit log, but it does not look at the password file. [File paths](#file-paths) describes the rules.
 
 4. Install a root-owned wrapper at `/usr/local/bin/scopedmail-agent` with mode 0755:
@@ -102,7 +104,7 @@ In this setup, the agent can run scopedmail but cannot read its config, its cred
 What is left in this setup:
 
 - **Mail content still leaves through `send`.** The agent can send any text it can read to an address in `send_to`. Keep `send_to` short, and leave `send` off unless you need it.
-- **The agent can plant symlinks in `files_dir`.** scopedmail opens every path with `os.Root`, which refuses a symlink or a `..` that leads out of the directory. A symlink to another file inside the directory still works.
+- **The agent can plant symlinks and hard links in `files_dir`.** scopedmail opens every path with `os.Root`, which refuses a symlink or a `..` that leads out of the directory. A symlink to another file inside the directory still works. scopedmail refuses any file with more than one hard link. Put `files_dir` on a file system that holds none of the service user's secrets, or keep `fs.protected_hardlinks=1` on Linux.
 - **The audit log can lose its tail.** See [Pin the head hash](#pin-the-head-hash).
 
 ## Install
@@ -390,8 +392,9 @@ Some commands take a path from the agent: `append --file`, `attachment --out`, a
 
 - **Unset means off.** Without `files_dir`, scopedmail refuses every file flag with a denial that names the key. `policy` shows `"files_dir":null`. The commands that take no path keep working. This default fails closed. A setup that forgets the key cannot leak a file, and it costs one config line.
 - **Relative paths** are relative to `files_dir`, not to the working directory. **Absolute paths** are accepted only when they lie inside `files_dir`.
-- **Nothing escapes.** scopedmail opens each path with Go's `os.Root`, so the open itself checks containment. A `..` that climbs out, an absolute path outside, a symlink to a file outside, a symlinked directory, and a symlink swapped in while the command runs are all refused. There is no gap between a check and the open.
-- **Reads** go through one function for `send` and `append`. It accepts regular files only.
+- **Symlinks and `..` cannot escape.** scopedmail opens each path with Go's `os.Root`, so the open itself checks containment. A `..` that climbs out, an absolute path outside, a symlink to a file outside, a symlinked directory, and a symlink swapped in while the command runs are all refused. There is no gap between a check and the open.
+- **Hard links are refused.** A hard link is not a path that leads out. It is a second name for the same file, so `os.Root` cannot tell a hard link to a secret from a file the agent made. scopedmail refuses to read any file with more than one link. On Linux, `fs.protected_hardlinks=1` (the default on most distributions) also stops the agent from linking a file it cannot write. On other systems, put `files_dir` on a separate file system from the service user's secrets, because a hard link cannot cross file systems.
+- **Reads** go through one function for `send` and `append`. It accepts a regular file with one link only. It checks the open file, not the path, and it opens without blocking, so a FIFO swapped in during the command cannot hang it.
 - **Writes** by `attachment` create a new file with mode 0600 and never replace an existing one. A symlink already at that name is an error. A failed download removes its partial file.
 - **A refused path is audited.** The record has outcome `denied`, and the reason says what failed. The `file` or `out` argument holds the path as the agent gave it.
 - **`files_dir` may not hold the config file or the audit log.** scopedmail refuses such a config at load, whether the overlap is direct or through a symlink.

@@ -29,7 +29,7 @@ type filesFixture struct {
 }
 
 // newFilesFixture adds, beside files_dir, an outside/ directory that holds a
-// secret, and symlinks inside files_dir that point at it.
+// secret, symlinks inside files_dir that point at it, and a hard link to it.
 func newFilesFixture(t *testing.T) *filesFixture {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -52,11 +52,15 @@ func newFilesFixture(t *testing.T) *filesFixture {
 			t.Fatal(err)
 		}
 	}
+	if err := os.Link(filepath.Join(ff.outside, "secret.txt"), filepath.Join(f.files, "hard-out")); err != nil {
+		t.Fatal(err)
+	}
 	return ff
 }
 
 func (ff *filesFixture) escapes() []string {
 	return []string{
+		"hard-out",
 		"../outside/secret.txt",
 		filepath.Join(ff.outside, "secret.txt"),
 		filepath.Join(ff.files, "..", "outside", "secret.txt"),

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // Denied reports a path the agent may not use: files are switched off, or the
@@ -143,26 +144,31 @@ func escaped(path string, err error) error {
 	return err
 }
 
-// Open opens a regular file for reading. The caller closes it.
+// Open opens a regular file for reading. The caller closes it. Every check is
+// on the opened handle, so nothing can change between a check and the read.
+// O_NONBLOCK keeps the open of a FIFO from waiting for a writer, and it has no
+// effect on reads from a regular file.
+//
+// os.Root stops symlinks and ".." from leaving the directory, but a hard link
+// is the file itself, so it is refused unless the file has exactly one link.
+// Otherwise an agent that can create links in files_dir could link a file the
+// service user can read, from anywhere on the same file system, and mail it.
 func (d *Dir) Open(path string) (*os.File, os.FileInfo, error) {
 	r, name, err := d.resolve(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Stat first, so a FIFO is refused before an open can block on it. The
-	// open below is still confined, and rechecked on the handle.
-	if st, err := r.Stat(name); err != nil {
-		return nil, nil, escaped(path, err)
-	} else if !st.Mode().IsRegular() {
-		return nil, nil, fmt.Errorf("%s %w", path, ErrNotRegular)
-	}
-	f, err := r.OpenFile(name, os.O_RDONLY, 0)
+	f, err := r.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, nil, escaped(path, err)
 	}
 	info, err := f.Stat()
-	if err == nil && !info.Mode().IsRegular() {
+	switch {
+	case err != nil:
+	case !info.Mode().IsRegular():
 		err = fmt.Errorf("%s %w", path, ErrNotRegular)
+	case linkCount(info) != 1:
+		err = &Denied{Path: path, Reason: fmt.Sprintf("has %d hard links; only a file with one link may be used", linkCount(info))}
 	}
 	if err != nil {
 		f.Close()
