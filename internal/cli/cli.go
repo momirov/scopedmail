@@ -415,6 +415,8 @@ type writeResult struct {
 	OK       bool     `json:"ok"`
 	Count    int      `json:"count"`
 	DestUIDs []uint32 `json:"dest_uids,omitempty"`
+	// UID is the new message's UID, for append.
+	UID uint32 `json:"uid,omitempty"`
 }
 
 func runFlag(inv *invocation, args []string) error {

@@ -500,15 +500,15 @@ func ParseFlag(name string) (imap.Flag, error) {
 	}
 	switch strings.ToLower(name) {
 	case "", "deleted", "recent":
-		return "", fmt.Errorf("unsupported flag %q", name)
+		return "", fmt.Errorf(`unsupported flag "%s"`, name)
 	}
 	if strings.HasPrefix(name, `\`) {
-		return "", fmt.Errorf("unsupported flag %q", name)
+		return "", fmt.Errorf(`unsupported flag "%s"`, name)
 	}
 	for _, r := range name {
 		ok := r == '$' || r == '_' || r == '-' || r == '.' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
 		if !ok {
-			return "", fmt.Errorf("invalid keyword %q", name)
+			return "", fmt.Errorf(`invalid keyword "%s"`, name)
 		}
 	}
 	return imap.Flag(name), nil

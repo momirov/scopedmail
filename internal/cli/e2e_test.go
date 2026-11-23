@@ -770,3 +770,39 @@ func TestReadKeepsAForwardUnstripped(t *testing.T) {
 		t.Errorf("a forward subject must not be stripped: %+v", out)
 	}
 }
+
+func TestAppendPrintsKeysInTheOrderOfOtherWriteCommands(t *testing.T) {
+	f := newFixture(t, readOnlyPolicy+allActions)
+	path := filepath.Join(f.files, "m.eml")
+	os.WriteFile(path, []byte("Subject: hi\r\n\r\nbody\r\n"), 0o600)
+	r := f.run("append", "-m", "Agent", "--file", path)
+	if r.exit != 0 {
+		t.Fatalf("exit %d: %s", r.exit, r.stderr)
+	}
+	if want := `{"ok":true,"count":1,"uid":3}` + "\n"; r.stdout != want {
+		t.Errorf("stdout = %q, want %q", r.stdout, want)
+	}
+	if r := f.run("create-mailbox", "Agent/X"); r.stdout != `{"ok":true,"count":1}`+"\n" {
+		t.Errorf("create-mailbox stdout = %q", r.stdout)
+	}
+}
+
+func TestFlagErrorNamesTheFlagOnceEscaped(t *testing.T) {
+	f := newFixture(t, readOnlyPolicy+allActions)
+	for _, name := range []string{`\Deleted`, `\Recent`, `\Anything`, `bad name`} {
+		r := f.run("flag", "-m", "Agent", "--add", name, "1")
+		if r.exit != 2 {
+			t.Fatalf("%s: exit %d", name, r.exit)
+		}
+		var e struct{ Error struct{ Message string } }
+		if err := json.Unmarshal([]byte(r.stderr), &e); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(e.Error.Message, `"`+name+`"`) {
+			t.Errorf("message = %q, want it to end with %q", e.Error.Message, `"`+name+`"`)
+		}
+		if strings.Contains(r.stderr, `\\\\`) {
+			t.Errorf("stderr escapes the backslash twice: %s", r.stderr)
+		}
+	}
+}

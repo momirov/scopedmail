@@ -35,11 +35,7 @@ func runAppend(inv *invocation, args []string) error {
 		if err != nil {
 			return err
 		}
-		out := map[string]any{"ok": true, "count": 1}
-		if uid != 0 {
-			out["uid"] = uid
-		}
-		writeJSON(inv.env.Stdout, out)
+		writeJSON(inv.env.Stdout, writeResult{OK: true, Count: 1, UID: uid})
 		return nil
 	})
 }
