@@ -1,11 +1,11 @@
-# labelgate design
+# scopedmail design
 
-labelgate is a CLI that AI agents call to work with an IMAP mailbox (Gmail first). A configured policy limits which mailboxes (Gmail labels) and which actions the agent can use. Every attempted action, allowed or denied, is appended to a tamper-evident audit log.
+scopedmail is a CLI that AI agents call to work with an IMAP mailbox (Gmail first). A configured policy limits which mailboxes (Gmail labels) and which actions the agent can use. Every attempted action, allowed or denied, is appended to a tamper-evident audit log.
 
 ## Threat model
 
-- **In scope.** An agent that is buggy, over-eager, or prompt-injected by email content tries to read or change mail outside the allowed labels. labelgate denies it and records the attempt.
-- **Out of scope.** An agent with shell access as the same OS user can read the config and the credential source. For a hard boundary, run labelgate as a separate OS user (sudo rule or a small wrapper) so the agent can execute it but cannot read its config, credentials, or audit log. Document this in the README.
+- **In scope.** An agent that is buggy, over-eager, or prompt-injected by email content tries to read or change mail outside the allowed labels. scopedmail denies it and records the attempt.
+- **Out of scope.** An agent with shell access as the same OS user can read the config and the credential source. For a hard boundary, run scopedmail as a separate OS user (sudo rule or a small wrapper) so the agent can execute it but cannot read its config, credentials, or audit log. Document this in the README.
 
 ## Core data shapes
 
@@ -80,23 +80,23 @@ type Record struct {
 
 - The audit log opens before the IMAP connection does. If the log cannot be opened or locked, the command fails closed and nothing reaches the server.
 - An exclusive `flock` covers reading the last record and appending the next one, so concurrent agent processes keep the chain linear. This is unix-only behind a build tag. On Windows a no-op lock is documented as a caveat.
-- `labelgate audit verify` recomputes the chain and reports the first broken seq. `labelgate audit tail [-n N]` prints records.
+- `scopedmail audit verify` recomputes the chain and reports the first broken seq. `scopedmail audit tail [-n N]` prints records.
 - File mode is 0600.
 
 ### Config (`internal/config`), the TOML boundary
 
-Path: `--config` flag, else `$LABELGATE_CONFIG`, else `$XDG_CONFIG_HOME/labelgate/config.toml` (`~/.config/...`). Refuse to load a config or audit file that is group- or world-writable, as ssh does.
+Path: `--config` flag, else `$SCOPEDMAIL_CONFIG`, else `$XDG_CONFIG_HOME/scopedmail/config.toml` (`~/.config/...`). Refuse to load a config or audit file that is group- or world-writable, as ssh does.
 
 ```toml
 default_account = "work"
-audit_log = "~/.local/state/labelgate/audit.jsonl"
+audit_log = "~/.local/state/scopedmail/audit.jsonl"
 
 [accounts.work]
 host = "imap.gmail.com"
 port = 993
 username = "me@example.com"
 auth = "password"              # "password" | "oauth2"
-password_cmd = ["security", "find-generic-password", "-s", "labelgate", "-w"]  # or password_env = "LABELGATE_PASSWORD"
+password_cmd = ["security", "find-generic-password", "-s", "scopedmail", "-w"]  # or password_env = "SCOPEDMAIL_PASSWORD"
 # oauth2_token_cmd = ["gcloud", "auth", "print-access-token"]   # prints an access token; used with SASL OAUTHBEARER/XOAUTH2
 
 [accounts.work.policy]
@@ -114,7 +114,7 @@ All output is JSON on stdout. Errors go to stderr as `{"error": {"code": "...", 
 Exit codes: 0 ok, 1 error, 2 usage, 3 denied by policy.
 
 ```
-labelgate [--config PATH] [--account NAME] <command>
+scopedmail [--config PATH] [--account NAME] <command>
 
 mailboxes                                   list allowed mailboxes (with message/unseen counts)
 search  -m MBOX [--from --to --subject --body --text --since DATE --before DATE --seen|--unseen --flagged --limit N]

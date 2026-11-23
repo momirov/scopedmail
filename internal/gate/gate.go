@@ -9,8 +9,8 @@ import (
 
 	"github.com/emersion/go-imap/v2/imapclient"
 
-	"github.com/momirov/labelgate/internal/audit"
-	"github.com/momirov/labelgate/internal/policy"
+	"github.com/momirov/scopedmail/internal/audit"
+	"github.com/momirov/scopedmail/internal/policy"
 )
 
 // ConnectFunc dials and authenticates. The gate calls it lazily, so a denied

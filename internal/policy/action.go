@@ -25,7 +25,7 @@ type ActionSpec struct {
 	Target bool
 }
 
-// Actions is the single source of truth for what labelgate can do. Every CLI
+// Actions is the single source of truth for what scopedmail can do. Every CLI
 // command maps to exactly one entry, and the gate refuses anything absent here.
 var Actions = map[Action]ActionSpec{
 	Mailboxes:     {},

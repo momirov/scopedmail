@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/momirov/labelgate/internal/cli"
+	"github.com/momirov/scopedmail/internal/cli"
 )
 
 func main() {

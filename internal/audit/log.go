@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/momirov/labelgate/internal/fsperm"
+	"github.com/momirov/scopedmail/internal/fsperm"
 )
 
 // Log appends records to a hash-chained JSONL file. Every Append takes an
@@ -120,7 +120,7 @@ func (l *Log) head() ([]byte, uint64, error) {
 			return nil, 0, err
 		}
 		if tail[len(tail)-1] != '\n' {
-			return nil, 0, errors.New("ends with a partial record; run `labelgate audit verify`")
+			return nil, 0, errors.New("ends with a partial record; run `scopedmail audit verify`")
 		}
 		body := tail[:len(tail)-1]
 		if i := bytes.LastIndexByte(body, '\n'); i >= 0 {

@@ -13,24 +13,24 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 
-	"github.com/momirov/labelgate/internal/audit"
-	"github.com/momirov/labelgate/internal/testserver"
+	"github.com/momirov/scopedmail/internal/audit"
+	"github.com/momirov/scopedmail/internal/testserver"
 )
 
 var binary string
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "labelgate-e2e")
+	dir, err := os.MkdirTemp("", "scopedmail-e2e")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	name := "labelgate"
+	name := "scopedmail"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
 	binary = filepath.Join(dir, name)
-	build := exec.Command("go", "build", "-o", binary, "../../cmd/labelgate")
+	build := exec.Command("go", "build", "-o", binary, "../../cmd/scopedmail")
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build failed: %v\n%s", err, out)
 		os.Exit(1)
@@ -65,7 +65,7 @@ func newFixture(t *testing.T, policyBody string) *fixture {
 	if err := os.WriteFile(filepath.Join(f.dir, "ca.pem"), srv.CAPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	f.writeConfig(f.accountBlock("tls_ca_file = \"ca.pem\"\npassword_env = \"LABELGATE_PASSWORD\"", policyBody))
+	f.writeConfig(f.accountBlock("tls_ca_file = \"ca.pem\"\npassword_env = \"SCOPEDMAIL_PASSWORD\"", policyBody))
 	return f
 }
 
@@ -106,7 +106,7 @@ func (f *fixture) run(args ...string) result {
 	f.t.Helper()
 	f.srv.ResetCommands()
 	cmd := exec.Command(binary, append([]string{"--config", f.config}, args...)...)
-	cmd.Env = append(os.Environ(), "LABELGATE_PASSWORD="+testserver.Password)
+	cmd.Env = append(os.Environ(), "SCOPEDMAIL_PASSWORD="+testserver.Password)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -299,7 +299,7 @@ func TestGmailSystemFolderNeedsExactAllow(t *testing.T) {
 	if r := f.run("read", "-m", "[Gmail]/Trash", "1"); r.exit != 3 {
 		t.Errorf("sibling system folder: exit %d, want 3", r.exit)
 	}
-	f.writeConfig(f.accountBlock("tls_ca_file = \"ca.pem\"\npassword_env = \"LABELGATE_PASSWORD\"", `allow = ["Agent", "[Gmail]/*"]`))
+	f.writeConfig(f.accountBlock("tls_ca_file = \"ca.pem\"\npassword_env = \"SCOPEDMAIL_PASSWORD\"", `allow = ["Agent", "[Gmail]/*"]`))
 	if r := f.run("mailboxes"); r.exit != 1 || r.errCode(t) != "config" {
 		t.Errorf("wildcard over Gmail namespace: exit %d stderr %s", r.exit, r.stderr)
 	}
@@ -516,7 +516,7 @@ func TestAuditFailureFailsClosedBeforeConnecting(t *testing.T) {
 	blocker := filepath.Join(f.dir, "blocker")
 	os.WriteFile(blocker, nil, 0o600)
 	f.audit = filepath.Join(blocker, "audit.jsonl")
-	f.writeConfig(f.accountBlock("tls_ca_file = \"ca.pem\"\npassword_env = \"LABELGATE_PASSWORD\"", readOnlyPolicy))
+	f.writeConfig(f.accountBlock("tls_ca_file = \"ca.pem\"\npassword_env = \"SCOPEDMAIL_PASSWORD\"", readOnlyPolicy))
 	r := f.run("mailboxes")
 	if r.exit != 1 || r.errCode(t) != "audit" || r.stdout != "" {
 		t.Fatalf("exit %d stdout %q stderr %s", r.exit, r.stdout, r.stderr)
@@ -562,7 +562,7 @@ func TestUnsafeOrInvalidConfigIsRefused(t *testing.T) {
 
 func TestUntrustedCertificateIsRejected(t *testing.T) {
 	f := newFixture(t, readOnlyPolicy)
-	f.writeConfig(f.accountBlock(`password_env = "LABELGATE_PASSWORD"`, readOnlyPolicy))
+	f.writeConfig(f.accountBlock(`password_env = "SCOPEDMAIL_PASSWORD"`, readOnlyPolicy))
 	r := f.run("mailboxes")
 	if r.exit != 1 {
 		t.Fatalf("exit %d, want 1", r.exit)
@@ -596,7 +596,7 @@ func TestPasswordCmd(t *testing.T) {
 func TestWrongPasswordIsAnAuditedError(t *testing.T) {
 	f := newFixture(t, readOnlyPolicy)
 	cmd := exec.Command(binary, "--config", f.config, "mailboxes")
-	cmd.Env = append(os.Environ(), "LABELGATE_PASSWORD=wrong-password")
+	cmd.Env = append(os.Environ(), "SCOPEDMAIL_PASSWORD=wrong-password")
 	if err := cmd.Run(); err == nil {
 		t.Fatal("login with a wrong password succeeded")
 	}
@@ -656,7 +656,7 @@ func TestAuditNeverHoldsCredentialsOrBodies(t *testing.T) {
 func TestExplicitAccountFlagAndMissingAccount(t *testing.T) {
 	f := newFixture(t, readOnlyPolicy)
 	cmd := exec.Command(binary, "--config", f.config, "--account", "missing", "mailboxes")
-	cmd.Env = append(os.Environ(), "LABELGATE_PASSWORD="+testserver.Password)
+	cmd.Env = append(os.Environ(), "SCOPEDMAIL_PASSWORD="+testserver.Password)
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
 	err := cmd.Run()

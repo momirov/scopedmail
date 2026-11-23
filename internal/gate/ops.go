@@ -14,7 +14,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
-	"github.com/momirov/labelgate/internal/policy"
+	"github.com/momirov/scopedmail/internal/policy"
 )
 
 type MailboxInfo struct {

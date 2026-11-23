@@ -17,7 +17,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-sasl"
 
-	"github.com/momirov/labelgate/internal/config"
+	"github.com/momirov/scopedmail/internal/config"
 )
 
 const (

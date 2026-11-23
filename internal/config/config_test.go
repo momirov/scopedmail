@@ -9,13 +9,13 @@ import (
 
 const goodConfig = `
 default_account = "work"
-audit_log = "/var/lib/labelgate/audit.jsonl"
+audit_log = "/var/lib/scopedmail/audit.jsonl"
 
 [accounts.work]
 host = "imap.gmail.com"
 username = "me@example.com"
 auth = "password"
-password_env = "LABELGATE_PASSWORD"
+password_env = "SCOPEDMAIL_PASSWORD"
 
 [accounts.work.policy]
 allow = ["Agent", "Receipts/*"]
@@ -51,7 +51,7 @@ func TestLoadGoodConfig(t *testing.T) {
 	if !a.Policy.MailboxAllowed("Receipts/Food") || a.Policy.MailboxAllowed("Receipts/Tax") || a.Policy.MailboxAllowed("INBOX") {
 		t.Error("policy was not built from the [policy] table")
 	}
-	if cfg.AuditLog != "/var/lib/labelgate/audit.jsonl" {
+	if cfg.AuditLog != "/var/lib/scopedmail/audit.jsonl" {
 		t.Errorf("audit_log = %q", cfg.AuditLog)
 	}
 }
@@ -82,7 +82,7 @@ func TestLoadAcceptsReadableByOthers(t *testing.T) {
 }
 
 func TestInlinePasswordIsAParseError(t *testing.T) {
-	body := strings.Replace(goodConfig, `password_env = "LABELGATE_PASSWORD"`, `password = "hunter2"`, 1)
+	body := strings.Replace(goodConfig, `password_env = "SCOPEDMAIL_PASSWORD"`, `password = "hunter2"`, 1)
 	_, err := Load(writeConfig(t, body, 0o600))
 	if err == nil || !strings.Contains(err.Error(), "inline passwords") {
 		t.Fatalf("err = %v, want inline-password refusal", err)
@@ -131,14 +131,14 @@ func TestPolicyErrorsSurfaceAtLoad(t *testing.T) {
 func TestCredentialRules(t *testing.T) {
 	tests := map[string]string{
 		"missing auth":     strings.Replace(goodConfig, `auth = "password"`, "", 1),
-		"no credential":    strings.Replace(goodConfig, `password_env = "LABELGATE_PASSWORD"`, "", 1),
-		"both credentials": strings.Replace(goodConfig, `password_env = "LABELGATE_PASSWORD"`, "password_env = \"X\"\npassword_cmd = [\"echo\"]", 1),
+		"no credential":    strings.Replace(goodConfig, `password_env = "SCOPEDMAIL_PASSWORD"`, "", 1),
+		"both credentials": strings.Replace(goodConfig, `password_env = "SCOPEDMAIL_PASSWORD"`, "password_env = \"X\"\npassword_cmd = [\"echo\"]", 1),
 		"unknown auth":     strings.Replace(goodConfig, `"password"`, `"plain"`, 1),
 		"oauth no cmd":     strings.Replace(goodConfig, `auth = "password"`, `auth = "oauth2"`, 1),
 		"missing host":     strings.Replace(goodConfig, `host = "imap.gmail.com"`, "", 1),
 		"bad port":         strings.Replace(goodConfig, `auth = "password"`, "auth = \"password\"\nport = 99999", 1),
-		"missing audit":    strings.Replace(goodConfig, `audit_log = "/var/lib/labelgate/audit.jsonl"`, "", 1),
-		"relative audit":   strings.Replace(goodConfig, `/var/lib/labelgate/audit.jsonl`, "audit.jsonl", 1),
+		"missing audit":    strings.Replace(goodConfig, `audit_log = "/var/lib/scopedmail/audit.jsonl"`, "", 1),
+		"relative audit":   strings.Replace(goodConfig, `/var/lib/scopedmail/audit.jsonl`, "audit.jsonl", 1),
 		"bad default":      strings.Replace(goodConfig, `default_account = "work"`, `default_account = "nope"`, 1),
 	}
 	for name, body := range tests {
@@ -150,7 +150,7 @@ func TestCredentialRules(t *testing.T) {
 
 func TestOAuth2Account(t *testing.T) {
 	body := strings.Replace(goodConfig, `auth = "password"
-password_env = "LABELGATE_PASSWORD"`, `auth = "oauth2"
+password_env = "SCOPEDMAIL_PASSWORD"`, `auth = "oauth2"
 oauth2_token_cmd = ["gcloud", "auth", "print-access-token"]`, 1)
 	cfg, err := Load(writeConfig(t, body, 0o600))
 	if err != nil {
@@ -200,7 +200,7 @@ func TestAccountSelection(t *testing.T) {
 }
 
 func TestDefaultPathPrecedence(t *testing.T) {
-	env := map[string]string{"LABELGATE_CONFIG": "/e/c.toml", "XDG_CONFIG_HOME": "/xdg"}
+	env := map[string]string{"SCOPEDMAIL_CONFIG": "/e/c.toml", "XDG_CONFIG_HOME": "/xdg"}
 	get := func(k string) string { return env[k] }
 	if p, _ := DefaultPath("/flag.toml", get); p != "/flag.toml" {
 		t.Errorf("flag: %q", p)
@@ -208,25 +208,25 @@ func TestDefaultPathPrecedence(t *testing.T) {
 	if p, _ := DefaultPath("", get); p != "/e/c.toml" {
 		t.Errorf("env: %q", p)
 	}
-	delete(env, "LABELGATE_CONFIG")
-	if p, _ := DefaultPath("", get); p != filepath.Join("/xdg", "labelgate", "config.toml") {
+	delete(env, "SCOPEDMAIL_CONFIG")
+	if p, _ := DefaultPath("", get); p != filepath.Join("/xdg", "scopedmail", "config.toml") {
 		t.Errorf("xdg: %q", p)
 	}
 	delete(env, "XDG_CONFIG_HOME")
 	home, _ := os.UserHomeDir()
-	if p, _ := DefaultPath("", get); p != filepath.Join(home, ".config", "labelgate", "config.toml") {
+	if p, _ := DefaultPath("", get); p != filepath.Join(home, ".config", "scopedmail", "config.toml") {
 		t.Errorf("home: %q", p)
 	}
 }
 
 func TestHomeExpansionInAuditLog(t *testing.T) {
-	body := strings.Replace(goodConfig, `/var/lib/labelgate/audit.jsonl`, "~/.local/state/labelgate/audit.jsonl", 1)
+	body := strings.Replace(goodConfig, `/var/lib/scopedmail/audit.jsonl`, "~/.local/state/scopedmail/audit.jsonl", 1)
 	cfg, err := Load(writeConfig(t, body, 0o600))
 	if err != nil {
 		t.Fatal(err)
 	}
 	home, _ := os.UserHomeDir()
-	if want := filepath.Join(home, ".local/state/labelgate/audit.jsonl"); cfg.AuditLog != want {
+	if want := filepath.Join(home, ".local/state/scopedmail/audit.jsonl"); cfg.AuditLog != want {
 		t.Errorf("audit_log = %q, want %q", cfg.AuditLog, want)
 	}
 }

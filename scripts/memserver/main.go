@@ -1,8 +1,8 @@
 // Command memserver starts the seeded in-memory IMAP test server and writes a
-// matching labelgate config, for trying the real binary by hand:
+// matching scopedmail config, for trying the real binary by hand:
 //
 //	go run ./scripts/memserver -dir /path/to/workdir
-//	LABELGATE_PASSWORD=... labelgate --config /path/to/workdir/config.toml mailboxes
+//	SCOPEDMAIL_PASSWORD=... scopedmail --config /path/to/workdir/config.toml mailboxes
 package main
 
 import (
@@ -13,7 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"github.com/momirov/labelgate/internal/testserver"
+	"github.com/momirov/scopedmail/internal/testserver"
 )
 
 func main() {
@@ -44,7 +44,7 @@ host = %q
 port = %d
 username = %q
 auth = "password"
-password_env = "LABELGATE_PASSWORD"
+password_env = "SCOPEDMAIL_PASSWORD"
 tls_ca_file = "ca.pem"
 
 [accounts.demo.policy]

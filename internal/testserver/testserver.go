@@ -266,7 +266,7 @@ func newCA() (*x509.Certificate, *ecdsa.PrivateKey, []byte, error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "labelgate test CA"},
+		Subject:               pkix.Name{CommonName: "scopedmail test CA"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		IsCA:                  true,

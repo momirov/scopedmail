@@ -11,11 +11,11 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
-	"github.com/momirov/labelgate/internal/audit"
-	"github.com/momirov/labelgate/internal/config"
-	"github.com/momirov/labelgate/internal/gate"
-	"github.com/momirov/labelgate/internal/policy"
-	"github.com/momirov/labelgate/internal/testserver"
+	"github.com/momirov/scopedmail/internal/audit"
+	"github.com/momirov/scopedmail/internal/config"
+	"github.com/momirov/scopedmail/internal/gate"
+	"github.com/momirov/scopedmail/internal/policy"
+	"github.com/momirov/scopedmail/internal/testserver"
 )
 
 type env struct {

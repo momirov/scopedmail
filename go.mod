@@ -1,4 +1,4 @@
-module github.com/momirov/labelgate
+module github.com/momirov/scopedmail
 
 go 1.27.4
 

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/momirov/labelgate/internal/audit"
-	"github.com/momirov/labelgate/internal/config"
-	"github.com/momirov/labelgate/internal/gate"
+	"github.com/momirov/scopedmail/internal/audit"
+	"github.com/momirov/scopedmail/internal/config"
+	"github.com/momirov/scopedmail/internal/gate"
 )
 
 const (
@@ -76,7 +76,7 @@ func init() {
 
 func usageText() string {
 	var b strings.Builder
-	b.WriteString("usage: labelgate [--config PATH] [--account NAME] <command>\n\ncommands:\n")
+	b.WriteString("usage: scopedmail [--config PATH] [--account NAME] <command>\n\ncommands:\n")
 	for _, c := range commands {
 		b.WriteString("  " + c.usage + "\n")
 	}
@@ -84,10 +84,10 @@ func usageText() string {
 	return b.String()
 }
 
-// Run executes one labelgate invocation and returns its exit code.
+// Run executes one scopedmail invocation and returns its exit code.
 func Run(args []string, env Env) int {
 	inv := &invocation{env: env}
-	fs := newFlagSet("labelgate")
+	fs := newFlagSet("scopedmail")
 	fs.StringVar(&inv.configPath, "config", "", "config file")
 	fs.StringVar(&inv.account, "account", "", "account name")
 	err := fs.Parse(args)

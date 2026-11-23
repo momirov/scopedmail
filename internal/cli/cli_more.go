@@ -3,8 +3,8 @@ package cli
 import (
 	"os"
 
-	"github.com/momirov/labelgate/internal/audit"
-	"github.com/momirov/labelgate/internal/gate"
+	"github.com/momirov/scopedmail/internal/audit"
+	"github.com/momirov/scopedmail/internal/gate"
 )
 
 func runAppend(inv *invocation, args []string) error {

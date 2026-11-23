@@ -1,15 +1,15 @@
 version: 2
 
-project_name: labelgate
+project_name: scopedmail
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: labelgate
-    main: ./cmd/labelgate
-    binary: labelgate
+  - id: scopedmail
+    main: ./cmd/scopedmail
+    binary: scopedmail
     env:
       - CGO_ENABLED=0
     goos: [darwin, linux, windows]

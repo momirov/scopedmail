@@ -12,8 +12,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/momirov/labelgate/internal/fsperm"
-	"github.com/momirov/labelgate/internal/policy"
+	"github.com/momirov/scopedmail/internal/fsperm"
+	"github.com/momirov/scopedmail/internal/policy"
 )
 
 type Auth string
@@ -75,23 +75,23 @@ type rawPolicy struct {
 	Trash   string   `toml:"trash"`
 }
 
-// DefaultPath resolves the config location: flag, then $LABELGATE_CONFIG, then
-// $XDG_CONFIG_HOME/labelgate/config.toml, then ~/.config/labelgate/config.toml.
+// DefaultPath resolves the config location: flag, then $SCOPEDMAIL_CONFIG, then
+// $XDG_CONFIG_HOME/scopedmail/config.toml, then ~/.config/scopedmail/config.toml.
 func DefaultPath(flagValue string, getenv func(string) string) (string, error) {
 	if flagValue != "" {
 		return flagValue, nil
 	}
-	if p := getenv("LABELGATE_CONFIG"); p != "" {
+	if p := getenv("SCOPEDMAIL_CONFIG"); p != "" {
 		return p, nil
 	}
 	if x := getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "labelgate", "config.toml"), nil
+		return filepath.Join(x, "scopedmail", "config.toml"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot locate config: %w", err)
 	}
-	return filepath.Join(home, ".config", "labelgate", "config.toml"), nil
+	return filepath.Join(home, ".config", "scopedmail", "config.toml"), nil
 }
 
 // Load reads path, refusing a file that group or others can write.
