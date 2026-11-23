@@ -36,7 +36,7 @@ scopedmail does not protect against an agent that runs shell commands as the sam
 
 ### Run scopedmail as a separate OS user
 
-In this setup, the agent can run scopedmail but cannot read its config, its credentials, or its audit log. The steps assume Linux, a service user named `scopedmail`, and an agent user named `agent`. Adjust the names and paths for your system.
+In this setup, the agent can run scopedmail but cannot read its config or its credentials. It cannot read or change the audit log file either. Through `scopedmail audit tail`, it can read the records of its own account, which lets it review what it did. The steps assume Linux, a service user named `scopedmail`, and an agent user named `agent`. Adjust the names and paths for your system.
 
 1. Create the service user with no login shell:
 
@@ -696,7 +696,7 @@ $ scopedmail audit verify
 {"error":{"code":"audit_broken","message":"audit chain broken at seq 2: hash does not match record contents"}}
 ```
 
-`audit tail -n N` verifies the chain the same way, then prints the last N records, oldest first. N defaults to 10.
+`audit tail -n N` verifies the chain the same way, then prints the last N records of the selected account, oldest first. N defaults to 10. The account is the one `--account` or `default_account` selects, the same as for every other command. Accounts can share one log, so an agent that runs through a wrapper pinned to one account cannot read what another account did. `audit verify` checks every account's records and prints only the totals above. As the operator, read the log file itself to see every account.
 
 ### Pin the head hash
 

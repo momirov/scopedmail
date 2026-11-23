@@ -152,7 +152,7 @@ func (r result) errCode(t *testing.T) string {
 
 func (f *fixture) records() []audit.Record {
 	f.t.Helper()
-	recs, err := audit.Tail(f.audit, 0)
+	recs, err := audit.Tail(f.audit, 0, "")
 	if err != nil {
 		f.t.Fatal(err)
 	}

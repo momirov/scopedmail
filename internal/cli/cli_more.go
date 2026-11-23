@@ -90,7 +90,8 @@ func runPolicy(inv *invocation, args []string) error {
 	return nil
 }
 
-// runAudit reads the log and appends nothing to it.
+// runAudit reads the log and appends nothing to it. verify checks every
+// account's records and prints only totals.
 func runAudit(inv *invocation, args []string) error {
 	if len(args) == 0 {
 		return usagef("audit needs a subcommand: verify or tail")
@@ -123,6 +124,8 @@ func runAudit(inv *invocation, args []string) error {
 	return nil
 }
 
+// auditTail shows only the selected account's records. Accounts can share one
+// log, and an agent pinned to one account must not read what another did.
 func auditTail(inv *invocation, args []string) error {
 	fs := newFlagSet("audit tail")
 	n := fs.Int("n", 10, "number of records")
@@ -137,7 +140,11 @@ func auditTail(inv *invocation, args []string) error {
 	if err != nil {
 		return err
 	}
-	recs, err := audit.Tail(cfg.AuditLog, *n)
+	acct, err := cfg.Account(inv.account)
+	if err != nil {
+		return &codedError{"config", err}
+	}
+	recs, err := audit.Tail(cfg.AuditLog, *n, acct.Name)
 	if err != nil {
 		return err
 	}

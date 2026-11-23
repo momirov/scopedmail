@@ -89,3 +89,19 @@ func TestLogFromBeforeIntentsStillVerifiesAndExtends(t *testing.T) {
 		t.Fatalf("verify after append = %+v, %v", res, err)
 	}
 }
+
+func TestTailKeepsOnlyTheNamedAccount(t *testing.T) {
+	other := Record{Account: "boss", Action: "read", Mailbox: "Private", Outcome: OutcomeOK}
+	mine := Record{Account: "work", Action: "read", Mailbox: "Agent", Outcome: OutcomeOK}
+	path := appendAll(t, mine, other, mine, other)
+	recs, err := Tail(path, 10, "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 2 || recs[0].Seq != 1 || recs[1].Seq != 3 {
+		t.Errorf("Tail = %+v, want seqs 1 and 3", recs)
+	}
+	if recs, _ := Tail(path, 1, "work"); len(recs) != 1 || recs[0].Seq != 3 {
+		t.Errorf("Tail -n 1 = %+v, want seq 3", recs)
+	}
+}

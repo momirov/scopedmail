@@ -54,11 +54,15 @@ func Verify(path string) (VerifyResult, error) {
 	return res, err
 }
 
-// Tail returns the last n records, oldest first, after verifying the whole
-// chain so a tampered log is never presented as trustworthy.
-func Tail(path string, n int) ([]Record, error) {
+// Tail returns the last n records of account, oldest first, or of every
+// account when account is "". It verifies the whole chain first, so a
+// tampered log is never presented as trustworthy.
+func Tail(path string, n int, account string) ([]Record, error) {
 	var recs []Record
 	_, err := scan(path, func(rec Record) error {
+		if account != "" && rec.Account != account {
+			return nil
+		}
 		recs = append(recs, rec)
 		if n > 0 && len(recs) > n {
 			recs = recs[1:]

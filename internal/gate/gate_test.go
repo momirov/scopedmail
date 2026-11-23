@@ -67,7 +67,7 @@ func setup(t *testing.T, spec policy.Spec, opts testserver.Options) *env {
 
 func (e *env) records(t *testing.T) []audit.Record {
 	t.Helper()
-	recs, err := audit.Tail(e.log, 0)
+	recs, err := audit.Tail(e.log, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

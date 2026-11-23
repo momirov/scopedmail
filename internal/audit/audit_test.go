@@ -91,7 +91,7 @@ func TestVerifyEmptyLog(t *testing.T) {
 
 func TestFirstRecordHasEmptyPrevAndLaterOnesChain(t *testing.T) {
 	path := writeLog(t, 3)
-	recs, err := Tail(path, 0)
+	recs, err := Tail(path, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +303,7 @@ func TestLongRecordsRoundTrip(t *testing.T) {
 
 func TestTailReturnsLastNOldestFirst(t *testing.T) {
 	path := writeLog(t, 6)
-	recs, err := Tail(path, 2)
+	recs, err := Tail(path, 2, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestTailRefusesTamperedLog(t *testing.T) {
 	lines := readLines(t, path)
 	lines[0] = bytes.Replace(lines[0], []byte(`"Agent"`), []byte(`"Other"`), 1)
 	writeLines(t, path, lines)
-	if _, err := Tail(path, 1); err == nil {
+	if _, err := Tail(path, 1, ""); err == nil {
 		t.Fatal("Tail presented a tampered log as valid")
 	}
 }
