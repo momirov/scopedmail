@@ -260,10 +260,12 @@ type QuotesRemoved struct {
 
 type Message struct {
 	Summary
-	InReplyTo   []string         `json:"in_reply_to,omitempty"`
-	Text        string           `json:"text"`
-	HTML        string           `json:"html,omitempty"`
-	Raw         string           `json:"raw,omitempty"`
+	InReplyTo []string `json:"in_reply_to,omitempty"`
+	Text      string   `json:"text"`
+	HTML      string   `json:"html,omitempty"`
+	// Raw is set whenever the read asked for it, even when empty, so a missing
+	// key never stands for a message that has a source.
+	Raw         *string          `json:"raw,omitempty"`
 	Attachments []AttachmentInfo `json:"attachments"`
 	// QuotesRemoved is set only when Read removed something.
 	QuotesRemoved *QuotesRemoved `json:"quotes_removed,omitempty"`
@@ -312,7 +314,12 @@ func (s *Session) Read(mailbox string, uid uint32, opt ReadOptions) (*Message, e
 			if err != nil {
 				return 0, err
 			}
-			m.Raw = strings.ToValidUTF8(string(raw.FindBodySection(full)), "�")
+			src := raw.FindBodySection(full)
+			if len(src) == 0 && m.Size > 0 {
+				return 0, fmt.Errorf("server returned no source for the %d byte message", m.Size)
+			}
+			text := strings.ToValidUTF8(string(src), "�")
+			m.Raw = &text
 			out = m
 			return 1, nil
 		}

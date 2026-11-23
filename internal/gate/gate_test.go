@@ -2,9 +2,11 @@ package gate_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -451,5 +453,41 @@ func TestUntrustedServerCertificateFailsClosed(t *testing.T) {
 	sess := gate.New("x", pol, log, gate.Dialer(acct), gate.Outbound{}, nil)
 	if _, err := sess.Mailboxes(); err == nil {
 		t.Fatal("connected to a server whose certificate is not trusted")
+	}
+}
+
+// The in-memory server answers BODY[] with nothing for a message that does not
+// parse as RFC 5322 headers, while still reporting its RFC822.SIZE. read --raw
+// used to turn that into a reply with no "raw" field, so a 528 byte message
+// looked empty. It must fail loudly, and a raw read must always carry the key.
+func TestReadRawOfAnUnparsableMessageFailsInsteadOfLookingEmpty(t *testing.T) {
+	e := setup(t, policy.Spec{Allow: []string{"Agent"}, Actions: allActions}, testserver.Options{})
+	blob := strings.Repeat("not a mail message ", 28)
+	uid, err := e.sess.Append("Agent", strings.NewReader(blob), int64(len(blob)), nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := e.sess.Read("Agent", uid, gate.ReadOptions{Raw: true})
+	if err == nil {
+		out, _ := json.Marshal(msg)
+		t.Fatalf("read --raw of a %d byte message succeeded: %s", len(blob), out)
+	}
+	if !strings.Contains(err.Error(), "no source") || !strings.Contains(err.Error(), strconv.Itoa(len(blob))) {
+		t.Errorf("err = %v", err)
+	}
+	if last := e.records(t); last[len(last)-1].Outcome != audit.OutcomeError {
+		t.Errorf("record = %+v", last[len(last)-1])
+	}
+
+	good, err := e.sess.Read("Agent", 1, gate.ReadOptions{Raw: true})
+	if err != nil || good.Raw == nil || !strings.Contains(*good.Raw, testserver.AgentBodyMarker) {
+		t.Fatalf("raw of a normal message: %+v, %v", good, err)
+	}
+	empty := ""
+	if b, _ := json.Marshal(gate.Message{Raw: &empty}); !strings.Contains(string(b), `"raw":""`) {
+		t.Errorf("an empty raw source is left out of the JSON: %s", b)
+	}
+	if b, _ := json.Marshal(gate.Message{}); strings.Contains(string(b), `"raw"`) {
+		t.Errorf("a read without --raw carries raw: %s", b)
 	}
 }
