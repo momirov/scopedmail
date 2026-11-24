@@ -103,6 +103,7 @@ func init() {
 		{"send", "send --to A[,B] [--cc ..] [--bcc ..] [--subject S] (--body S | --body-file F | stdin) [--html-file F] [--attach FILE]... [--reply-to -m MBOX UID]", runSend},
 		{"policy", "policy", runPolicy},
 		{"audit", "audit verify | audit tail [-n N]", runAudit},
+		{"version", "version", runVersion},
 	}
 }
 

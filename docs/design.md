@@ -201,6 +201,7 @@ send    --to A[,B] [--cc ..] [--bcc ..] [--subject S] (--body S | --body-file F 
                                             -> {ok, message_id, recipients}
 policy                                      print effective policy and files_dir for the account (agent self-discovery)
 audit verify | audit tail [-n N]
+version                                     -> {version}; reads no config
 ```
 
 Write commands print `{"ok":true,"count":N}` from one struct, plus `dest_uids` for copy and move and `uid` for append when the server reports them. `search` returns the newest matches first; `--limit` defaults to 50 and accepts 1 to 1000. `read` returns the HTML body without `--html` when the message has no plain-text part. `send` reads files and stdin before it connects, and a reply connects only to read the original's headers.
