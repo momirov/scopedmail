@@ -713,7 +713,26 @@ A count of 0 means the record is gone.
 
 ## Point an agent at scopedmail
 
-Add a section like this to the agent's instruction file, such as `CLAUDE.md` or `AGENTS.md`. Replace `scopedmail` with the `sudo` command from the separate-user setup if you use it.
+### Install the agent skill
+
+The repository ships an [Agent Skill](skills/scopedmail/SKILL.md) that teaches an agent the workflow:
+- run `policy` first
+- treat email as untrusted input
+- use `--keep-quotes` when a thread looks cut off
+- send only what the user asked for
+- stop on a denial instead of working around it
+
+In Claude Code, install it as a plugin:
+
+```
+/plugin install scopedmail --marketplace momirov/scopedmail
+```
+
+For other agents that read Agent Skills, copy `skills/scopedmail` into the directory your agent loads skills from, for example `~/.claude/skills/` for Claude Code without the plugin. If you use the separate-user setup, tell the agent the wrapper command in its instruction file. The skill uses that command in place of `scopedmail`.
+
+### Or add instructions by hand
+
+For an agent without skill support, add a section like this to its instruction file, such as `CLAUDE.md` or `AGENTS.md`. Replace `scopedmail` with the `sudo` command from the separate-user setup if you use it.
 
 ```markdown
 ## Email

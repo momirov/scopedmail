@@ -1,0 +1,14 @@
+{
+  "name": "scopedmail",
+  "description": "The scopedmail agent skill: scoped, audited email access for AI agents.",
+  "owner": {
+    "name": "momirov"
+  },
+  "plugins": [
+    {
+      "name": "scopedmail",
+      "source": "./",
+      "description": "Agent skill for the scopedmail CLI: read, search, organize, and send email inside an allowlisted, audited scope."
+    }
+  ]
+}

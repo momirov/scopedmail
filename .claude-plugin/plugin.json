@@ -1,0 +1,10 @@
+{
+  "name": "scopedmail",
+  "description": "Agent skill for the scopedmail CLI: read, search, organize, and send email inside an allowlisted, audited scope.",
+  "version": "0.1.0",
+  "author": { "name": "momirov" },
+  "homepage": "https://github.com/momirov/scopedmail",
+  "repository": "https://github.com/momirov/scopedmail",
+  "license": "MIT",
+  "keywords": ["email", "imap", "gmail", "security"]
+}
