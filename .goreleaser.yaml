@@ -15,7 +15,7 @@ builds:
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
     flags: [-trimpath]
-    ldflags: ["-s -w"]
+    ldflags: ["-s -w -X github.com/momirov/scopedmail/internal/cli.Version={{ .Version }}"]
 
 archives:
   - formats: [binary]

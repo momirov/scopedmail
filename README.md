@@ -626,6 +626,17 @@ audit tail [-n N]
 
 Both read the audit log and write nothing to it. They are described under [The audit log](#the-audit-log).
 
+### `version`
+
+Prints the version. It does not read the config, so it works before setup. Include its output in bug reports.
+
+```console
+$ scopedmail version
+{"version":"0.1.2"}
+```
+
+A release binary prints its release version. A `go install` build prints the module version.
+
 ## Quoted history in read
 
 A reply carries the thread it answers below the new text, and an agent that reads the thread pays for that history again with each reply. `read` removes it by default, in the plain-text and the HTML body. `--raw` is never stripped.
