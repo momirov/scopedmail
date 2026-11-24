@@ -111,13 +111,34 @@ What is left in this setup:
 
 ## Install
 
-With Go 1.27.4 or later:
+Download a prebuilt binary from the [Releases page](https://github.com/momirov/scopedmail/releases). You do not need Go. Each release has one archive per platform and a `checksums.txt`.
+
+Archives are named `scopedmail_<version>_<os>_<arch>.tar.gz`, or `.zip` on Windows. The `<os>` is `darwin`, `linux`, or `windows`. The `<arch>` is `amd64` or `arm64`. The version has no leading `v`, so tag `v1.2.3` ships `scopedmail_1.2.3_linux_amd64.tar.gz`. Each archive holds the `scopedmail` binary and `LICENSE`.
+
+On Linux or macOS, this downloads the latest archive, checks it against `checksums.txt`, and installs the binary. It stops if the checksum does not match.
+
+```sh
+VERSION=$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/momirov/scopedmail/releases/latest | sed 's#.*/tag/v##')
+OS=$(uname -s | tr A-Z a-z)
+ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+FILE=scopedmail_${VERSION}_${OS}_${ARCH}.tar.gz
+BASE=https://github.com/momirov/scopedmail/releases/download/v${VERSION}
+
+curl -fsSLO "$BASE/$FILE" && curl -fsSLO "$BASE/checksums.txt" &&
+  grep " $FILE\$" checksums.txt | shasum -a 256 -c - &&
+  tar -xzf "$FILE" scopedmail &&
+  sudo install -m 0755 scopedmail /usr/local/bin/scopedmail
+```
+
+`shasum` ships with macOS and most Linux distributions. If yours lacks it, use `sha256sum -c -` instead.
+
+On Windows, download the `.zip` for your architecture and put `scopedmail.exe` in a directory on your `PATH`.
+
+Or, with Go 1.27.4 or later, build from source:
 
 ```sh
 go install github.com/momirov/scopedmail/cmd/scopedmail@latest
 ```
-
-Release archives for macOS, Linux, and Windows on amd64 and arm64 are built with [goreleaser](https://goreleaser.com) from `.goreleaser.yaml`. Each archive holds the `scopedmail` binary and `LICENSE`, with a `checksums.txt` beside them.
 
 ## Set up Gmail with an app password
 
