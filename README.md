@@ -741,7 +741,7 @@ You have scoped access to my email through the `scopedmail` CLI. Do not use any 
 
 ## Contributing
 
-Bug reports and pull requests are welcome. Before you send a change, run:
+Bug reports and pull requests are welcome. Report a security issue privately, as [SECURITY.md](SECURITY.md) describes, and not in a public issue. Before you send a change, run:
 
 ```sh
 go vet ./...
