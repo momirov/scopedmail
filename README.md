@@ -754,10 +754,17 @@ The repository ships an [Agent Skill](skills/scopedmail/SKILL.md) that teaches a
 - send only what the user asked for
 - stop on a denial instead of working around it
 
-In Claude Code, install it as a plugin:
+In Claude Code, install it as a plugin from your shell:
+
+```sh
+claude plugin install scopedmail --marketplace momirov/scopedmail
+```
+
+Or, inside a Claude Code session:
 
 ```
-/plugin install scopedmail --marketplace momirov/scopedmail
+/plugin marketplace add momirov/scopedmail
+/plugin install scopedmail@scopedmail
 ```
 
 For other agents that read Agent Skills, copy `skills/scopedmail` into the directory your agent loads skills from, for example `~/.claude/skills/` for Claude Code without the plugin. If you use the separate-user setup, tell the agent the wrapper command in its instruction file. The skill uses that command in place of `scopedmail`.
