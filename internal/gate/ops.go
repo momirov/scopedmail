@@ -525,6 +525,18 @@ func ParseFlag(name string) (imap.Flag, error) {
 	return imap.Flag(name), nil
 }
 
+// keywords returns the flags that are not system flags. Gmail can map each
+// one to a label.
+func keywords(flags []imap.Flag) []string {
+	var out []string
+	for _, f := range flags {
+		if !strings.HasPrefix(string(f), `\`) {
+			out = append(out, string(f))
+		}
+	}
+	return out
+}
+
 func parseFlags(names []string) ([]imap.Flag, error) {
 	var out []imap.Flag
 	for _, n := range names {
@@ -562,7 +574,8 @@ func (s *Session) Flag(mailbox string, uids []uint32, add, remove []string) erro
 	if len(remove) > 0 {
 		args["remove"] = strings.Join(remove, ",")
 	}
-	return s.run(attempt{action: policy.Flag, mailbox: mailbox, uids: uids, args: args}, func(c *imapclient.Client) (int, error) {
+	kws := keywords(append(append([]imap.Flag(nil), addF...), remF...))
+	return s.run(attempt{action: policy.Flag, mailbox: mailbox, uids: uids, keywords: kws, args: args}, func(c *imapclient.Client) (int, error) {
 		if err := selectRW(c, mailbox); err != nil {
 			return 0, err
 		}
@@ -710,7 +723,7 @@ func (s *Session) Append(mailbox string, r io.Reader, size int64, flags []string
 		args["file"] = source
 	}
 	var uid uint32
-	err = s.run(attempt{action: policy.Append, mailbox: mailbox, args: args}, func(c *imapclient.Client) (int, error) {
+	err = s.run(attempt{action: policy.Append, mailbox: mailbox, keywords: keywords(fl), args: args}, func(c *imapclient.Client) (int, error) {
 		cmd := c.Append(mailbox, size, &imap.AppendOptions{Flags: fl})
 		n, werr := io.Copy(cmd, io.LimitReader(r, size))
 		cerr := cmd.Close()

@@ -99,6 +99,9 @@ type attempt struct {
 	file string
 	// recipients is every To, Cc and Bcc address of a send.
 	recipients []string
+	// keywords are the flags other than the system ones that flag or append
+	// would set or clear.
+	keywords []string
 	// args is recorded as given. An action may add entries while it runs, for
 	// facts only known then, and run records the map after exec returns.
 	args map[string]string
@@ -129,6 +132,9 @@ func clip(s string) string {
 // recipients, and by the read policy on the message it replies to.
 func (s *Session) decide(at attempt) policy.Decision {
 	d := s.decideAction(at)
+	if d.Allowed {
+		d = s.policy.CheckKeywords(at.keywords)
+	}
 	if d.Allowed && at.file != "" {
 		if err := s.files.Check(at.file); err != nil {
 			return policy.Decision{Reason: err.Error()}

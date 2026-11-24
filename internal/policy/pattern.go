@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 const delim = "/"
@@ -13,6 +15,8 @@ const delim = "/"
 type Pattern struct {
 	name     string
 	wildcard bool
+	// folded is name in the form deny rules compare, from fold.
+	folded string
 }
 
 func NewPattern(raw string) (Pattern, error) {
@@ -23,12 +27,14 @@ func NewPattern(raw string) (Pattern, error) {
 		if err := validateName(prefix); err != nil {
 			return Pattern{}, fmt.Errorf("pattern %q: %w", raw, err)
 		}
-		return Pattern{name: canonical(prefix), wildcard: true}, nil
+		name := canonical(prefix)
+		return Pattern{name: name, wildcard: true, folded: fold(name)}, nil
 	}
 	if err := validateName(raw); err != nil {
 		return Pattern{}, fmt.Errorf("pattern %q: %w", raw, err)
 	}
-	return Pattern{name: canonical(raw)}, nil
+	name := canonical(raw)
+	return Pattern{name: name, folded: fold(name)}, nil
 }
 
 func (p Pattern) String() string {
@@ -46,15 +52,29 @@ func (p Pattern) matches(name string) bool {
 	return name == p.name
 }
 
-// matchesFold is for deny rules. Servers such as Gmail resolve labels
-// case-insensitively, so a case-sensitive deny would let "receipts/tax" slip
-// past a deny on "Receipts/Tax".
-func (p Pattern) matchesFold(name string) bool {
-	n, pn := strings.ToLower(name), strings.ToLower(p.name)
+// matchesFold is for deny rules, and takes a name already passed through
+// fold. Servers such as Gmail resolve labels case-insensitively, so a
+// case-sensitive deny would let "receipts/tax" slip past a deny on
+// "Receipts/Tax".
+func (p Pattern) matchesFold(folded string) bool {
 	if p.wildcard {
-		return strings.HasPrefix(n, pn+delim)
+		return strings.HasPrefix(folded, p.folded+delim)
 	}
-	return n == pn
+	return folded == p.folded
+}
+
+// fold maps every name that differs only in Unicode normalization or in case
+// to one string: NFC, then each rune replaced by the smallest rune of its
+// simple case-folding orbit. strings.ToLower misses pairs such as "ς" and
+// "σ", and it leaves a decomposed "é" different from a composed one.
+func fold(name string) string {
+	return strings.Map(func(r rune) rune {
+		least := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			least = min(least, f)
+		}
+		return least
+	}, norm.NFC.String(name))
 }
 
 // canonical applies RFC 3501's rule that INBOX is case-insensitive.

@@ -40,6 +40,13 @@ func TestMailboxAllowed(t *testing.T) {
 		{"deny leaves siblings alone", Spec{Allow: []string{"Receipts/*"}, Deny: []string{"Receipts/Tax"}}, "Receipts/Food", true},
 		{"deny is case-insensitive", Spec{Allow: []string{"Receipts/*"}, Deny: []string{"Receipts/Tax"}}, "Receipts/tax", false},
 		{"deny wildcard covers descendants", Spec{Allow: []string{"Receipts/*"}, Deny: []string{"Receipts/Tax/*"}}, "Receipts/Tax/2025", false},
+		{"deny matches a decomposed accent", Spec{Allow: []string{"Clients/*"}, Deny: []string{"Clients/Caf\u00e9"}}, "Clients/Cafe\u0301", false},
+		{"deny matches a composed accent", Spec{Allow: []string{"Clients/*"}, Deny: []string{"Clients/Cafe\u0301"}}, "Clients/CAF\u00c9", false},
+		{"deny matches final sigma", Spec{Allow: []string{"Clients/*"}, Deny: []string{"Clients/\u03a3\u03bf\u03c6\u03af\u03b1\u03c3"}}, "Clients/\u03c3\u03bf\u03c6\u03af\u03b1\u03c2", false},
+		{"deny wildcard matches across case and normalization", Spec{Allow: []string{"Clients/*"}, Deny: []string{"Clients/Priv\u00e9/*"}}, "Clients/PRIVE\u0301/x", false},
+		{"deny matches a long s", Spec{Allow: []string{"Receipts/*"}, Deny: []string{"Receipts/Bus"}}, "Receipts/BU\u017f", false},
+		{"deny folding leaves other names alone", Spec{Allow: []string{"Clients/*"}, Deny: []string{"Clients/Caf\u00e9"}}, "Clients/Cafe", true},
+		{"allow stays exact under normalization", Spec{Allow: []string{"Caf\u00e9"}}, "Cafe\u0301", false},
 
 		{"gmail all mail denied by default", Spec{Allow: []string{"Agent"}}, "[Gmail]/All Mail", false},
 		{"gmail all mail allowed by exact name", Spec{Allow: []string{"[Gmail]/All Mail"}}, "[Gmail]/All Mail", true},

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 	"github.com/emersion/go-sasl"
 
 	"github.com/momirov/scopedmail/internal/config"
+	"github.com/momirov/scopedmail/internal/fsperm"
 )
 
 const (
@@ -63,7 +65,7 @@ func tlsConfig(acct config.Account, host string) (*tls.Config, error) {
 	if acct.TLSCAFile == "" {
 		return conf, nil
 	}
-	pemBytes, err := os.ReadFile(acct.TLSCAFile)
+	pemBytes, err := readTrusted(acct.TLSCAFile)
 	if err != nil {
 		return nil, fmt.Errorf("tls_ca_file: %w", err)
 	}
@@ -73,6 +75,24 @@ func tlsConfig(acct config.Account, host string) (*tls.Config, error) {
 	}
 	conf.RootCAs = pool
 	return conf, nil
+}
+
+// readTrusted reads a file that decides whom scopedmail trusts, refusing one
+// that group or others can write, as config.Load does for the config.
+func readTrusted(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if err := fsperm.RejectWritableByOthers(path, info); err != nil {
+		return nil, err
+	}
+	return io.ReadAll(f)
 }
 
 func authenticate(c *imapclient.Client, acct config.Account) error {

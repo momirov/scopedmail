@@ -342,7 +342,7 @@ func TestMoveWithoutMoveOrUIDPlusRefuses(t *testing.T) {
 }
 
 func TestFlagAddRemoveAndRefusesDeleted(t *testing.T) {
-	e := setup(t, policy.Spec{Allow: []string{"Agent"}, Actions: allActions}, testserver.Options{})
+	e := setup(t, policy.Spec{Allow: []string{"Agent"}, Actions: allActions, AllowKeywords: true}, testserver.Options{})
 	if err := e.sess.Flag("Agent", []uint32{1}, []string{"seen", "flagged", "Reviewed"}, nil); err != nil {
 		t.Fatal(err)
 	}

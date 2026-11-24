@@ -246,7 +246,7 @@ starttls = true
 | `auth` | yes | `"password"` or `"oauth2"`. |
 | `port` | no | Defaults to 993, or to 143 when `starttls = true`. |
 | `starttls` | no | `true` connects in plain text and upgrades with `STARTTLS`. The default is implicit TLS. There is no unencrypted mode. |
-| `tls_ca_file` | no | PEM file that replaces the system roots, for a server with a private CA. A relative path is relative to the config file. |
+| `tls_ca_file` | no | PEM file that replaces the system roots, for a server with a private CA. A relative path is relative to the config file. scopedmail refuses a CA file that the group or others can write, and a config whose `files_dir` holds it, because whoever can replace this file can read the credentials in transit. |
 | `password_cmd` | with `auth = "password"` | Command, as an argument list, that prints the password. The first element must be an absolute path. scopedmail runs it without a shell, trims the trailing newline, and gives it 30 seconds. The command gets only `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and `HOME`, set to the home directory of the user scopedmail runs as. |
 | `password_env` | with `auth = "password"` | Environment variable that holds the password. Use exactly one of `password_cmd` and `password_env`. |
 | `oauth2_token_cmd` | with `auth = "oauth2"` | Command that prints an access token. It follows the same rules as `password_cmd`. |
@@ -264,6 +264,7 @@ A `password` key is an error. scopedmail does not store passwords in the config.
 | `trash` | none | Mailbox that `delete` moves mail into. |
 | `send_to` | `[]` | Addresses and `@domain` rules that `send` may reach. Required when `send` is enabled. |
 | `max_recipients` | 10 | Most distinct To, Cc, and Bcc addresses in one `send`. Accepts 1 to 100. |
+| `allow_keywords` | `false` | Lets `flag` and `append --flags` set or clear keywords other than `seen`, `flagged`, `answered`, and `draft`. Gmail can map a keyword to a label, so a keyword can create a label that `allow` does not name. |
 
 ### `[accounts.NAME.smtp]`
 
@@ -281,12 +282,13 @@ With `send` enabled, `username` must be a plain email address, because it is the
 
 - **Default deny.** A mailbox is usable only when an `allow` entry matches it and no `deny` entry does.
 - **Patterns.** An entry is an exact name such as `Agent`, or `Prefix/*`. `Receipts/*` matches `Receipts/2026` and `Receipts/2026/March`, but not `Receipts` itself. List both to grant both. A bare `*` is a config error, so granting everything has to be spelled out.
-- **Case.** `allow` matches case-sensitively. `deny` matches case-insensitively, because Gmail resolves labels without regard to case, and a case-sensitive deny on `Receipts/Medical` would let `receipts/medical` through. `INBOX` is case-insensitive in both, as IMAP requires.
+- **Case.** `allow` matches exactly. `deny` ignores case and Unicode normalization, because Gmail resolves labels without regard to case, and a case-sensitive deny on `Receipts/Medical` would let `receipts/medical` through. A `deny` on `Clients/Café` also matches `clients/CAFÉ`, and `Café` written with a combining accent. `INBOX` is case-insensitive in both, as IMAP requires.
 - **Gmail system folders.** Everything under `[Gmail]/` and `[Google Mail]/`, such as `[Gmail]/All Mail`, `[Gmail]/Sent Mail`, or `[Gmail]/Trash`, is denied unless `allow` names that folder exactly. A wildcard such as `[Gmail]/*` is a config error. Without this rule, an agent could read every message in the account through `[Gmail]/All Mail`.
 - **Copy and move.** `copy` and `move` need both the source and the target allowed. Otherwise an agent could copy mail from an allowed label into any other label, or copy mail from a label it cannot read into one it can.
 - **New mailboxes.** `create-mailbox` and `append` check their mailbox name against the policy like any other action. To let the agent create sub-labels, allow `Agent/*`.
 - **Trash.** `trash` is a sink. `delete` moves mail into it without checking it against `allow`, because the agent only puts mail there. The agent cannot read or search the trash unless `allow` also names it.
 - **Flags.** `flag` refuses `\Deleted`, `\Recent`, and any other name that starts with a backslash. Only `delete` can remove mail.
+- **Keywords.** By default, `flag` and `append --flags` accept only `seen`, `flagged`, `answered`, and `draft`. Any other name is a keyword, and Gmail can map a keyword to a label of the same name, outside `allow`. A keyword is denied unless the policy sets `allow_keywords = true`.
 
 ## Sending mail
 
@@ -518,7 +520,7 @@ $ scopedmail attachment -m Agent 2 --part 2 --out report.txt
 flag -m MBOX [--add F,...] [--remove F,...] UID...
 ```
 
-`F` is `seen`, `flagged`, `answered`, `draft`, or a keyword made of letters, digits, and `$_-.`.
+`F` is `seen`, `flagged`, `answered`, `draft`, or, with `allow_keywords = true`, a keyword made of letters, digits, and `$_-.`. Without `allow_keywords`, a keyword is denied with exit code 3.
 
 ```console
 $ scopedmail flag -m Agent --add flagged,seen 1

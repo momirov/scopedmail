@@ -17,6 +17,10 @@ type Spec struct {
 	// MaxRecipients caps distinct To, Cc and Bcc addresses per send. Zero
 	// means DefaultMaxRecipients.
 	MaxRecipients int
+	// AllowKeywords lets flag and append set or clear keywords other than
+	// the four system flags. Gmail can map a keyword to a label, so a keyword
+	// can create a label the allowlist never named.
+	AllowKeywords bool
 }
 
 const (
@@ -31,6 +35,7 @@ type Policy struct {
 	trash         string
 	sendTo        []RecipientPattern
 	maxRecipients int
+	allowKeywords bool
 }
 
 type Decision struct {
@@ -38,12 +43,12 @@ type Decision struct {
 	Reason  string
 }
 
-var gmailNamespaces = []string{"[gmail]", "[google mail]"}
+var gmailNamespaces = []string{fold("[Gmail]"), fold("[Google Mail]")}
 
 // isGmailSystem reports whether name lives in Gmail's system namespace
 // ([Gmail]/All Mail, [Google Mail]/Trash, and so on).
 func isGmailSystem(name string) bool {
-	n := strings.ToLower(name)
+	n := fold(name)
 	for _, ns := range gmailNamespaces {
 		if n == ns || strings.HasPrefix(n, ns+delim) {
 			return true
@@ -53,7 +58,7 @@ func isGmailSystem(name string) bool {
 }
 
 func New(s Spec) (Policy, error) {
-	p := Policy{actions: map[Action]bool{}}
+	p := Policy{actions: map[Action]bool{}, allowKeywords: s.AllowKeywords}
 	for _, raw := range s.Allow {
 		pat, err := NewPattern(raw)
 		if err != nil {
@@ -116,6 +121,15 @@ func (p Policy) Trash() string { return p.trash }
 
 func (p Policy) ActionEnabled(a Action) bool { return p.actions[a] }
 
+// CheckKeywords decides whether flag or append may touch keywords, the flags
+// other than seen, flagged, answered and draft.
+func (p Policy) CheckKeywords(keywords []string) Decision {
+	if len(keywords) == 0 || p.allowKeywords {
+		return Decision{Allowed: true}
+	}
+	return Decision{Reason: fmt.Sprintf("keyword %q is not a system flag; custom keywords need allow_keywords = true", keywords[0])}
+}
+
 // MailboxAllowed is default deny. Deny rules win, Gmail system folders need an
 // exact-name allow, and everything else needs a matching allow rule.
 func (p Policy) MailboxAllowed(name string) bool {
@@ -127,8 +141,9 @@ func (p Policy) mailboxDecision(name string) Decision {
 		return Decision{Reason: fmt.Sprintf("invalid mailbox name: %v", err)}
 	}
 	name = canonical(name)
+	folded := fold(name)
 	for _, d := range p.deny {
-		if d.matchesFold(name) {
+		if d.matchesFold(folded) {
 			return Decision{Reason: fmt.Sprintf("mailbox %q matches deny rule %q", name, d)}
 		}
 	}
@@ -224,10 +239,12 @@ type Description struct {
 	// SendTo and MaxRecipients appear only when send is enabled.
 	SendTo        []string `json:"send_to,omitempty"`
 	MaxRecipients int      `json:"max_recipients,omitempty"`
+	// AllowKeywords appears only when it is on.
+	AllowKeywords bool `json:"allow_keywords,omitempty"`
 }
 
 func (p Policy) Describe() Description {
-	d := Description{Allow: []string{}, Deny: []string{}, Actions: []string{}, Trash: p.trash}
+	d := Description{Allow: []string{}, Deny: []string{}, Actions: []string{}, Trash: p.trash, AllowKeywords: p.allowKeywords}
 	for _, a := range p.allow {
 		d.Allow = append(d.Allow, a.String())
 	}

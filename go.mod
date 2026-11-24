@@ -10,6 +10,5 @@ require (
 	github.com/emersion/go-smtp v0.26.0
 	golang.org/x/net v0.63.0
 	golang.org/x/sys v0.50.0
+	golang.org/x/text v0.44.0
 )
-
-require golang.org/x/text v0.44.0 // indirect

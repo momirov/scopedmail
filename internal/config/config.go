@@ -107,6 +107,7 @@ type rawPolicy struct {
 	Trash         string   `toml:"trash"`
 	SendTo        []string `toml:"send_to"`
 	MaxRecipients int      `toml:"max_recipients"`
+	AllowKeywords bool     `toml:"allow_keywords"`
 }
 
 // DefaultPath resolves the config location: flag, then $SCOPEDMAIL_CONFIG, then
@@ -200,7 +201,7 @@ func build(raw rawConfig, path string) (*Config, error) {
 	for name, ra := range raw.Accounts {
 		acct, err := buildAccount(name, ra, dir)
 		if err == nil {
-			err = checkFilesDir(acct.FilesDir, path, cfg.AuditLog)
+			err = checkFilesDir(acct.FilesDir, path, cfg.AuditLog, acct.TLSCAFile)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("accounts.%s: %w", name, err)
@@ -298,6 +299,7 @@ func buildAccount(name string, ra rawAccount, dir string) (Account, error) {
 
 		SendTo:        ra.Policy.SendTo,
 		MaxRecipients: ra.Policy.MaxRecipients,
+		AllowKeywords: ra.Policy.AllowKeywords,
 	})
 	if err != nil {
 		return a, fmt.Errorf("policy: %w", err)
@@ -327,13 +329,17 @@ func checkCommand(key string, argv []string) error {
 	return nil
 }
 
-// checkFilesDir refuses a files_dir that holds the config or the audit log,
-// since the agent could then read, send or overwrite them through it.
-func checkFilesDir(filesDir string, secrets ...string) error {
+// checkFilesDir refuses a files_dir that holds the config, the audit log or
+// tls_ca_file, since the agent could then read, send or replace them through
+// it. A CA file the agent can replace lets it intercept the credentials.
+func checkFilesDir(filesDir string, protected ...string) error {
 	if filesDir == "" {
 		return nil
 	}
-	for _, s := range secrets {
+	for _, s := range protected {
+		if s == "" {
+			continue
+		}
 		if _, inside := agentfs.Rel(filesDir, s); inside {
 			return fmt.Errorf("files_dir %s contains %s", filesDir, s)
 		}

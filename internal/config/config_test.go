@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -371,5 +372,41 @@ func TestSendNeedsEmailUsername(t *testing.T) {
 	body := strings.Replace(withPolicy(sendPolicyBody), `me@example.com`, "me", 1)
 	if _, err := Load(writeConfig(t, body, 0o600)); err == nil || !strings.Contains(err.Error(), "From") {
 		t.Errorf("err = %v, want a From-address requirement", err)
+	}
+}
+
+func TestFilesDirMayNotHoldTheCAFile(t *testing.T) {
+	dir := t.TempDir()
+	files := filepath.Join(dir, "files")
+	for name, ca := range map[string]string{
+		"absolute": filepath.Join(files, "ca.pem"),
+		"relative": "files/ca.pem",
+	} {
+		body := strings.Replace(goodConfig, `password_env = "SCOPEDMAIL_PASSWORD"`, fmt.Sprintf("password_env = \"SCOPEDMAIL_PASSWORD\"\nfiles_dir = %q\ntls_ca_file = %q", files, ca), 1)
+		path := filepath.Join(dir, "config.toml")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "ca.pem") {
+			t.Errorf("%s tls_ca_file inside files_dir: Load = %v", name, err)
+		}
+	}
+	body := strings.Replace(goodConfig, `password_env = "SCOPEDMAIL_PASSWORD"`, fmt.Sprintf("password_env = \"SCOPEDMAIL_PASSWORD\"\nfiles_dir = %q\ntls_ca_file = %q", files, filepath.Join(dir, "ca.pem")), 1)
+	if _, err := Load(writeConfig(t, body, 0o600)); err != nil {
+		t.Errorf("tls_ca_file beside files_dir: %v", err)
+	}
+}
+
+func TestAllowKeywordsReachesThePolicy(t *testing.T) {
+	on := strings.Replace(goodConfig, `trash = "[Gmail]/Trash"`, "trash = \"[Gmail]/Trash\"\nallow_keywords = true", 1)
+	for body, want := range map[string]bool{goodConfig: false, on: true} {
+		cfg, err := Load(writeConfig(t, body, 0o600))
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, _ := cfg.Account("work")
+		if got := a.Policy.CheckKeywords([]string{"Project"}).Allowed; got != want {
+			t.Errorf("allow_keywords %v: keyword allowed = %v", want, got)
+		}
 	}
 }
