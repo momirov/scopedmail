@@ -118,13 +118,14 @@ Binaries are named `scopedmail_<version>_<os>_<arch>`, with `.exe` added on Wind
 On Linux or macOS, this downloads the latest binary, checks it against `checksums.txt`, and installs the binary. It stops if the checksum does not match.
 
 ```sh
-VERSION=$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/momirov/scopedmail/releases/latest | sed 's#.*/tag/v##')
+VERSION=$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/momirov/scopedmail/releases/latest | sed -n 's#.*/tag/v##p')
 OS=$(uname -s | tr A-Z a-z)
 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 FILE=scopedmail_${VERSION}_${OS}_${ARCH}
 BASE=https://github.com/momirov/scopedmail/releases/download/v${VERSION}
 
-curl -fsSLO "$BASE/$FILE" && curl -fsSLO "$BASE/checksums.txt" &&
+[ -n "$VERSION" ] || echo "could not find the latest release" >&2
+[ -n "$VERSION" ] && curl -fsSLO "$BASE/$FILE" && curl -fsSLO "$BASE/checksums.txt" &&
   grep " $FILE\$" checksums.txt | shasum -a 256 -c - &&
   sudo install -m 0755 "$FILE" /usr/local/bin/scopedmail
 ```
