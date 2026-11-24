@@ -4,6 +4,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"golang.org/x/net/html"
 )
@@ -45,6 +46,22 @@ type htmlTok struct {
 	attrs      map[string]string
 	text       string
 	start, end int
+
+	// The fields below are filled in one pass after tokenizing, so that no
+	// step rescans the document from each element.
+
+	// closer is the index of the end tag that closes this start tag, the
+	// token's own index for a void or self-closing tag, and -1 when the
+	// element is never closed. Only tags of the same name nest.
+	closer int
+	// visible is set on a text token outside script, style, title and head.
+	visible bool
+	// nextText is the index of the first visible text token at or after this
+	// one, or len(toks).
+	nextText int
+	// inkBefore counts the visible text tokens before this one that hold
+	// more than white space.
+	inkBefore int
 }
 
 func (t htmlTok) isStart() bool {
@@ -140,38 +157,79 @@ func tokenize(src string) ([]htmlTok, bool) {
 	}
 }
 
-// elementEnd returns the index of the end tag that closes the element opened
-// at toks[i], counting nested elements of the same name.
-func elementEnd(toks []htmlTok, i int) (int, bool) {
-	t := toks[i]
-	if t.typ == html.SelfClosingTagToken || voidElements[t.name] {
-		return i, true
-	}
-	depth := 1
-	for j := i + 1; j < len(toks); j++ {
-		if toks[j].name != t.name {
-			continue
-		}
-		switch toks[j].typ {
+// index fills in closer, visible, nextText and inkBefore.
+func index(toks []htmlTok) {
+	open := map[string][]int{}
+	skip, ink := 0, 0
+	for i := range toks {
+		t := &toks[i]
+		t.closer, t.inkBefore = -1, ink
+		switch t.typ {
+		case html.SelfClosingTagToken:
+			t.closer = i
 		case html.StartTagToken:
-			depth++
+			if voidElements[t.name] {
+				t.closer = i
+			} else {
+				open[t.name] = append(open[t.name], i)
+			}
+			if isRawTextElement(t.name) {
+				skip++
+			}
 		case html.EndTagToken:
-			if depth--; depth == 0 {
-				return j, true
+			if stack := open[t.name]; len(stack) > 0 {
+				toks[stack[len(stack)-1]].closer = i
+				open[t.name] = stack[:len(stack)-1]
+			}
+			if isRawTextElement(t.name) && skip > 0 {
+				skip--
+			}
+		case html.TextToken:
+			t.visible = skip == 0
+			if t.visible && strings.TrimFunc(t.text, unicode.IsSpace) != "" {
+				ink++
 			}
 		}
 	}
-	return 0, false
+	next := len(toks)
+	for i := len(toks) - 1; i >= 0; i-- {
+		if toks[i].visible {
+			next = i
+		}
+		toks[i].nextText = next
+	}
 }
 
-// bodyEnd returns the byte offset where the content of the body ends.
-func bodyEnd(src string, toks []htmlTok, from int) int {
-	for j := len(toks) - 1; j > from; j-- {
-		if toks[j].typ == html.EndTagToken && toks[j].name == "body" {
-			return toks[j].start
+// hasInk reports whether toks[from:to] hold any visible text other than white
+// space, which is when visibleLines of their source would not be empty.
+func hasInk(toks []htmlTok, from, to int) bool {
+	after := 0
+	if to < len(toks) {
+		after = toks[to].inkBefore
+	} else if n := len(toks); n > 0 {
+		after = toks[n-1].inkBefore
+		if last := toks[n-1]; last.visible && strings.TrimFunc(last.text, unicode.IsSpace) != "" {
+			after++
 		}
 	}
-	return len(src)
+	return after > toks[from].inkBefore
+}
+
+// elementEnd returns the index of the end tag that closes the element opened
+// at toks[i], counting nested elements of the same name.
+func elementEnd(toks []htmlTok, i int) (int, bool) {
+	return toks[i].closer, toks[i].closer >= 0
+}
+
+// bodyEnd returns the index of the token where the content of the body ends,
+// and its byte offset.
+func bodyEnd(src string, toks []htmlTok, from int) (int, int) {
+	for j := len(toks) - 1; j > from; j-- {
+		if toks[j].typ == html.EndTagToken && toks[j].name == "body" {
+			return j, toks[j].start
+		}
+	}
+	return len(toks), len(src)
 }
 
 func isRawTextElement(name string) bool {
@@ -223,21 +281,18 @@ func visibleLines(src string) []string {
 	}
 }
 
-// leadingText returns the first n bytes of visible text from toks[i] on.
+// leadingText returns the first n bytes of visible text inside the element
+// that toks[i] opens, or up to the end for an element that is never closed.
 func leadingText(toks []htmlTok, i, n int) string {
+	limit := len(toks)
+	if end, ok := elementEnd(toks, i); ok {
+		limit = end + 1
+	}
 	var b strings.Builder
-	skip := 0
-	for _, t := range toks[i:] {
-		switch {
-		case t.typ == html.StartTagToken && isRawTextElement(t.name):
-			skip++
-		case t.typ == html.EndTagToken && isRawTextElement(t.name) && skip > 0:
-			skip--
-		case t.typ == html.TextToken && skip == 0:
-			b.WriteString(t.text)
-		}
-		if b.Len() >= 4*n {
-			break
+	for j := toks[i].nextText; j < limit && b.Len() < 4*n; {
+		b.WriteString(toks[j].text)
+		if j++; j < len(toks) {
+			j = toks[j].nextText
 		}
 	}
 	text := strings.Join(strings.Fields(b.String()), " ")
@@ -252,11 +307,18 @@ func leadingText(toks []htmlTok, i, n int) string {
 // and leaves the rest of the markup as it came. Elements that start a
 // forwarded message are kept with everything inside them. A body that would
 // end up with no visible text comes back unchanged.
+//
+// Every step is linear in the size of the body, and a body over MaxBytes is
+// not looked at.
 func StripHTML(body string) Result {
+	if len(body) > MaxBytes {
+		return tooLarge(body)
+	}
 	toks, ok := tokenize(body)
 	if !ok {
 		return unchanged(body)
 	}
+	index(toks)
 	var out strings.Builder
 	var removedBytes, removedLines, copied int
 	for i := 0; i < len(toks); {
@@ -278,15 +340,14 @@ func StripHTML(body string) Result {
 			continue
 		}
 		cutEnd, next, ok := cutExtent(body, toks, i, rule)
-		if !ok {
+		if !ok || !hasInk(toks, i, next) {
 			i++
 			continue
+		}
+		if rule.toEnd {
+			next = len(toks)
 		}
 		lines := len(visibleLines(body[toks[i].start:cutEnd]))
-		if lines == 0 {
-			i++
-			continue
-		}
 		out.WriteString(body[copied:toks[i].start])
 		removedBytes += cutEnd - toks[i].start
 		removedLines += lines
@@ -323,11 +384,12 @@ func matchRule(toks []htmlTok, i int) *htmlRule {
 }
 
 // cutExtent returns the byte offset where the cut ends and the index of the
-// next token to look at. ok is false when the element has no end tag, and
+// first token after the cut. ok is false when the element has no end tag, and
 // then nothing is cut.
 func cutExtent(src string, toks []htmlTok, i int, r *htmlRule) (cutEnd, next int, ok bool) {
 	if r.toEnd {
-		return bodyEnd(src, toks, i), len(toks), true
+		next, cutEnd = bodyEnd(src, toks, i)
+		return cutEnd, next, true
 	}
 	end, ok := elementEnd(toks, i)
 	if !ok {

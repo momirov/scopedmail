@@ -621,6 +621,7 @@ A reply carries the thread it answers below the new text, and an agent that read
 - A forwarded message and everything after its marker, such as `---------- Forwarded message ---------`.
 - A message whose subject starts with `Fwd:`, `FW:`, `WG:`, `TR:`, `RV:`, or `ENC:`. Outlook marks a reply and a forward with the same header block, so for these subjects `read` strips nothing.
 - Any message that stripping would leave empty.
+- Any message with a text or HTML body over 2 MiB. Its output has `"quotes_skipped":"too large"` and no `quotes_removed`.
 - Anything it does not recognize with confidence.
 
 When it removes something, the output has `"quotes_removed":{"bytes":N,"lines":M}`, which counts the original text and html fields together. Without that field, nothing was removed. With `--keep-quotes`, the audit record for the read has the argument `keep_quotes=true`.

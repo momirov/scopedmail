@@ -269,6 +269,10 @@ type Message struct {
 	Attachments []AttachmentInfo `json:"attachments"`
 	// QuotesRemoved is set only when Read removed something.
 	QuotesRemoved *QuotesRemoved `json:"quotes_removed,omitempty"`
+	// QuotesSkipped says why Read left quoted history in. Its one value is
+	// "too large": a body part over quote.MaxBytes turns stripping off for
+	// the whole message.
+	QuotesSkipped string `json:"quotes_skipped,omitempty"`
 }
 
 var structureFetch = &imap.FetchOptions{
@@ -354,10 +358,17 @@ func (s *Session) Read(mailbox string, uid uint32, opt ReadOptions) (*Message, e
 			// A forward is new content, and Outlook marks a reply and a
 			// forward the same way, so a forward subject is never stripped.
 			strip := !opt.KeepQuotes && !quote.IsForwardSubject(m.Subject)
+			parts := make([]string, len(fetch))
+			for i, l := range fetch {
+				parts[i] = decodeText(body.FindBodySection(sections[i]), l)
+				if strip && len(parts[i]) > quote.MaxBytes {
+					strip, m.QuotesSkipped = false, "too large"
+				}
+			}
 			var texts, htmls []string
 			var removed QuotesRemoved
 			for i, l := range fetch {
-				t := decodeText(body.FindBodySection(sections[i]), l)
+				t := parts[i]
 				isHTML := l.mediaType() == "text/html"
 				if strip {
 					stripper := quote.StripText

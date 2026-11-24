@@ -15,6 +15,14 @@ type Result struct {
 	Text         string
 	RemovedBytes int
 	RemovedLines int
+	// TooLarge is set when the body is over MaxBytes and was not looked at.
+	TooLarge bool
 }
+
+// MaxBytes is the largest body the strippers read. A larger body comes back
+// unchanged with TooLarge set, so a hostile message cannot cost much CPU.
+const MaxBytes = 2 << 20
+
+func tooLarge(body string) Result { return Result{Text: body, TooLarge: true} }
 
 func unchanged(body string) Result { return Result{Text: body} }

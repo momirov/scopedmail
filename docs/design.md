@@ -104,7 +104,8 @@ Pure functions: `StripText`, `StripHTML`, and `IsForwardSubject`. `gate.Read` ca
 
 - Text. Detectors in `tailDetectors` recognize an attribution line (English, German, French, Spanish, Italian, Dutch, Portuguese, Serbian or Croatian, each with a digit-or-`@` check), Outlook's original-message line, and Outlook's `From`, `Sent`, `To`, `Subject` block in English, German, and French. A marker cuts itself and everything after it, but not when no text of the author's precedes it, and not when a `>` run follows it and the author's text follows that run. Runs of `>` lines become `[… N quoted lines removed]`, or disappear at the end of the body. A line `-- ` drops the rest. A forwarded-message marker and everything after it is kept.
 - HTML. `htmlRules` cut elements by client markup: Outlook (`appendonsend`, `divRplyFwdMsg`, the Word border header, each cutting to the end of the body), Gmail, Apple Mail and generic `blockquote type=cite`, Thunderbird, and Yahoo. `htmlKeepers` protect forwards.
-- A body that stripping would leave empty comes back unchanged. `Result` counts the removed bytes and lines of the original, and `gate.Read` sums both parts into `quotes_removed`.
+- A body that stripping would leave empty comes back unchanged. A body over `quote.MaxBytes` (2 MiB) also comes back unchanged, with `TooLarge` set. `gate.Read` checks every part first, and when one is over the limit it strips none and sets `quotes_skipped` to `"too large"` instead of `quotes_removed`.
+- Every step is linear in the body. After tokenizing, one pass stores on each token the index of the end tag that closes it (one stack per tag name), whether it is visible text, the next visible text token, and a running count of visible text tokens that are not blank. Finding an element's end, reading an element's first words, and asking whether a region holds visible text are then lookups, and `leadingText` reads only the element's own tokens. Before this, each candidate element rescanned the rest of the document, and a 1.9 MB message of unclosed quote elements took 15 seconds of CPU. `Result` counts the removed bytes and lines of the original, and `gate.Read` sums both parts into `quotes_removed`.
 - The known cost is false positives. Outlook has no `>` prefix, so the cut from its header to the end also removes inline answers typed between the quoted lines. `--keep-quotes` is the escape hatch, and the audit record notes it as `keep_quotes=true`.
 
 ### Audit (`internal/audit`)
@@ -186,7 +187,7 @@ mailboxes                                   list allowed mailboxes (with message
 search  -m MBOX [--from --to --subject --body --text --since DATE --before DATE --seen|--unseen --flagged --limit N]
                                             -> [{uid, message_id, date, from, to, cc, subject, flags, size}]
 read    -m MBOX UID [--raw] [--html] [--keep-quotes]
-                                            -> {summary fields..., in_reply_to?, text, html?, raw?, attachments:[{part, filename, type, size}], quotes_removed?:{bytes, lines}}
+                                            -> {summary fields..., in_reply_to?, text, html?, raw?, attachments:[{part, filename, type, size}], quotes_removed?:{bytes, lines}, quotes_skipped?:"too large"}
 attachment -m MBOX UID --part P --out FILE  write one decoded part to a new file inside files_dir (mode 0600, never overwrites) -> {part, path, bytes}
 flag    -m MBOX --add F,.. --remove F,.. UID...   (F: seen, flagged, answered, draft, or a keyword)
 copy    -m MBOX --to MBOX UID...            (Gmail: adds label)
